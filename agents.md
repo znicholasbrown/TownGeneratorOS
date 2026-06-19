@@ -32,16 +32,22 @@ Source/com/watabou/
 │   │   └── Cutter.hx        # Polygon subdivision utilities
 │   ├── wards/               # 13 ward types (see below)
 │   ├── mapping/
-│   │   ├── CityMap.hx       # Renders the city to display
-│   │   ├── Palette.hx       # 8 color schemes
-│   │   └── Brush.hx         # Stroke widths and drawing
-│   ├── settings/            # Configuration system
-│   │   ├── GeneratorSettings.hx  # Central settings with observables
-│   │   └── FeatureMode.hx        # Feature toggle enum (Always/Never/Chance)
-│   └── ui/                  # UI components
-│       ├── SettingsPanel.hx      # Tabbed settings panel
-│       ├── Button.hx             # Legacy button
-│       └── Tooltip.hx            # Ward info tooltip
+│   │   ├── CityMap.hx           # Renders generated city
+│   │   ├── ImportedCityMap.hx   # Renders imported JSON city
+│   │   ├── Palette.hx           # 8 color schemes (with water color)
+│   │   └── Brush.hx             # Stroke widths and drawing
+│   ├── export/
+│   │   └── CityExporter.hx      # Exports Model to JSON
+│   ├── importing/
+│   │   ├── CityImporter.hx      # Parses JSON to ImportedCity
+│   │   └── ImportedCity.hx      # Data structure for imported cities
+│   ├── settings/                # Configuration system
+│   │   ├── GeneratorSettings.hx # Central settings with observables
+│   │   └── FeatureMode.hx       # Feature toggle enum (Always/Never/Chance)
+│   └── ui/                      # UI components
+│       ├── SettingsPanel.hx     # Tabbed settings panel
+│       ├── Button.hx            # Legacy button
+│       └── Tooltip.hx           # Ward info tooltip
 ├── coogee/                  # Minimal game framework (Scene, Game, BitmapText)
 ├── geom/                    # Geometry: Polygon, Voronoi, Graph, Spline
 └── utils/                   # Random (seeded RNG), MathUtils, PerlinNoise
@@ -249,9 +255,67 @@ Custom OpenFL-based tabbed settings panel on the right side of the screen.
 
 ---
 
+## Import/Export System
+
+### JSON Export Format
+
+Exports to a GeoJSON-like FeatureCollection format compatible with the official MFCG version.
+
+**Feature Types:**
+
+| ID | Type | Description |
+|----|------|-------------|
+| `values` | Feature | Metadata (roadWidth, towerRadius, wallThickness, version) |
+| `earth` | Polygon | Map boundary |
+| `roads` | GeometryCollection | LineStrings with width property |
+| `walls` | GeometryCollection | Polygons with width property |
+| `rivers` | GeometryCollection | River paths (empty in generated cities) |
+| `planks` | GeometryCollection | Bridges (empty in generated cities) |
+| `buildings` | MultiPolygon | Regular buildings |
+| `prisms` | MultiPolygon | Special buildings (Castle, Cathedral) |
+| `squares` | MultiPolygon | Plazas (Market ward) |
+| `greens` | MultiPolygon | Parks (Park ward) |
+| `fields` | MultiPolygon | Farms (Farm ward) |
+| `trees` | MultiPoint | Tree positions (empty in generated cities) |
+| `districts` | GeometryCollection | Named ward polygons |
+| `water` | MultiPolygon | Water bodies (empty in generated cities) |
+
+### Import
+
+Load any JSON file matching the export format. The `ImportedCityMap` renderer supports:
+- Buildings, prisms, squares, greens, fields
+- Roads with variable widths
+- Walls with towers
+- Water bodies
+- Rivers
+- Bridges (planks)
+- Trees (rendered as small circles)
+
+**Usage:**
+1. Click "Import JSON" button in the Gen tab
+2. Select a `.json` file
+3. City is rendered immediately
+
+### Export
+
+Click "Export JSON" button to download the current city as `city_export.json`.
+
+### Key Classes
+
+| Class | Purpose |
+|-------|---------|
+| `CityExporter` | Converts Model to JSON string |
+| `CityImporter` | Parses JSON to ImportedCity |
+| `ImportedCity` | Lightweight city data structure |
+| `ImportedCityMap` | Renders ImportedCity to display |
+
+---
+
 ## Known Limitations
 
-- No waterbodies/rivers (mentioned in README as missing)
+- Water bodies and rivers are not generated (but can be imported)
+- Trees are not generated (but can be imported)
+- Named districts use ward type labels, not unique names
 - Source may lag behind live demo version
 
 ---

@@ -20,6 +20,8 @@ class SettingsPanel extends Sprite {
 
 	public var onGenerate:Signal0 = new Signal0();
 	public var onClose:Signal0 = new Signal0();
+	public var onExport:Signal0 = new Signal0();
+	public var onImport:Signal0 = new Signal0();
 
 	private var settings:GeneratorSettings;
 	private var palette:Palette;
@@ -248,6 +250,28 @@ class SettingsPanel extends Sprite {
 		generateBtn.x = 10;
 		generateBtn.y = yPos;
 		tab.addChild(generateBtn);
+		yPos += 50;
+
+		// Import/Export section
+		var ioLabel = createLabel("Import / Export", palette.dark, true);
+		ioLabel.x = 10;
+		ioLabel.y = yPos;
+		tab.addChild(ioLabel);
+		yPos += 22;
+
+		var exportBtn = new SimpleButton("Export JSON", 105, 28, function() {
+			onExport.dispatch();
+		}, palette);
+		exportBtn.x = 10;
+		exportBtn.y = yPos;
+		tab.addChild(exportBtn);
+
+		var importBtn = new SimpleButton("Import JSON", 105, 28, function() {
+			onImport.dispatch();
+		}, palette);
+		importBtn.x = 125;
+		importBtn.y = yPos;
+		tab.addChild(importBtn);
 
 		return tab;
 	}
