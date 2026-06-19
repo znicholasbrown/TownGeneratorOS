@@ -484,17 +484,48 @@ class Model {
 		return patches.filter( function( p:Patch ) return !isEnclosed( p ) );
 	}
 
-	// Get the shared edge vertices between two adjacent patches
+	// Get the shared edge vertices between two adjacent patches as a continuous ordered path
 	public function getSharedEdge( p1:Patch, p2:Patch ):Array<Point> {
-		var shared:Array<Point> = [];
+		// First collect all shared edge segments
+		var edges:Array<{a:Point, b:Point}> = [];
+
 		p1.shape.forEdge( function( a:Point, b:Point ) {
 			// If p2 has the reverse edge (b,a), these patches share this edge
 			if (p2.shape.findEdge( b, a ) != -1) {
-				shared.push( a );
-				shared.push( b );
+				edges.push({a: a, b: b});
 			}
 		} );
-		return shared;
+
+		if (edges.length == 0) return [];
+
+		// Chain edges into continuous path by matching endpoints
+		var path:Array<Point> = [edges[0].a, edges[0].b];
+		edges.splice(0, 1);
+
+		// Keep trying to extend the path until no more edges can be added
+		var changed = true;
+		while (changed && edges.length > 0) {
+			changed = false;
+			var i = 0;
+			while (i < edges.length) {
+				var e = edges[i];
+				if (e.a == path[path.length - 1]) {
+					// This edge continues from the end of path
+					path.push(e.b);
+					edges.splice(i, 1);
+					changed = true;
+				} else if (e.b == path[0]) {
+					// This edge continues to the start of path
+					path.unshift(e.a);
+					edges.splice(i, 1);
+					changed = true;
+				} else {
+					i++;
+				}
+			}
+		}
+
+		return path;
 	}
 
 	// Get shared edge length between two patches

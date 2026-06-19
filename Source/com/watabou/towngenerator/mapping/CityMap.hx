@@ -237,5 +237,27 @@ class CityMap extends Sprite {
 			g.drawCircle(c.x, c.y, 1.5);
 			g.endFill();
 		}
+
+		// Draw river center paths as green lines with vertex markers
+		if (model.rivers != null) {
+			for (river in model.rivers) {
+				// Draw the center path as a thick green line
+				g.lineStyle(0.8, 0x00FF00, 0.9);
+				if (river.path.length > 0) {
+					g.moveTo(river.path[0].x, river.path[0].y);
+					for (i in 1...river.path.length) {
+						g.lineTo(river.path[i].x, river.path[i].y);
+					}
+				}
+
+				// Draw vertices on the path as green dots
+				g.lineStyle(0.0);
+				for (v in river.path) {
+					g.beginFill(0x00FF00, 1.0);
+					g.drawCircle(v.x, v.y, 0.8);
+					g.endFill();
+				}
+			}
+		}
 	}
 }

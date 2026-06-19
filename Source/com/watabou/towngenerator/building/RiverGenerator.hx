@@ -193,49 +193,78 @@ class RiverGenerator {
 	}
 
 	// Extract continuous edge path from patch sequence
+	// The river follows the boundaries BETWEEN patches
 	private static function extractEdgePath(model:Model, patchPath:Array<Patch>):Polygon {
 		var path = new Polygon();
+
+		if (patchPath.length < 2) return path;
+
+		// Build path by following shared boundaries between consecutive patches
+		// Key insight: use a consistent reference patch (the second one) for all vertex lookups
+		// This ensures we're always working with the same Point objects
 
 		for (i in 0...patchPath.length - 1) {
 			var p1 = patchPath[i];
 			var p2 = patchPath[i + 1];
-			var sharedEdge = model.getSharedEdge(p1, p2);
 
-			if (sharedEdge.length == 0) continue;
+			// Get shared vertices by finding vertices of p2 that are also in p1
+			// We extract from p2 to maintain consistent references
+			var sharedVerts = getSharedVerticesOrdered(p1, p2);
 
-			// Add vertices in correct order (avoid backtracking)
+			if (sharedVerts.length == 0) continue;
+
 			if (path.length == 0) {
-				// First edge - add all vertices
-				var j = 0;
-				while (j < sharedEdge.length) {
-					path.push(sharedEdge[j]);
-					j++;
+				// First segment - add all shared vertices
+				for (v in sharedVerts) {
+					path.push(v);
 				}
 			} else {
-				// Connect to existing path - determine direction
+				// Connect to existing path
 				var lastPoint = path[path.length - 1];
-				var firstNew = sharedEdge[0];
-				var lastNew = sharedEdge[sharedEdge.length - 1];
 
-				var distToFirst = Point.distance(lastPoint, firstNew);
-				var distToLast = Point.distance(lastPoint, lastNew);
+				// Check if we need to reverse the shared vertices
+				var distToFirst = Point.distance(lastPoint, sharedVerts[0]);
+				var distToLast = Point.distance(lastPoint, sharedVerts[sharedVerts.length - 1]);
 
-				if (distToFirst <= distToLast) {
-					// Add in forward order
-					for (v in sharedEdge) {
-						if (!hasPoint(path, v)) {
-							path.push(v);
-						}
+				// If the endpoints are very close (same point), just add in order
+				// Otherwise, add in the direction that connects properly
+				if (distToFirst < 0.01) {
+					// Already connected at first vertex - add remaining
+					for (j in 1...sharedVerts.length) {
+						path.push(sharedVerts[j]);
+					}
+				} else if (distToLast < 0.01) {
+					// Connected at last vertex - add in reverse, skip last
+					var j = sharedVerts.length - 2;
+					while (j >= 0) {
+						path.push(sharedVerts[j]);
+						j--;
 					}
 				} else {
-					// Add in reverse order
-					var j = sharedEdge.length - 1;
-					while (j >= 0) {
-						var v = sharedEdge[j];
-						if (!hasPoint(path, v)) {
-							path.push(v);
+					// Not directly connected - need to traverse p1's boundary
+					// Find the connection point on p1
+					var connectPath = findConnectionPath(p1.shape, lastPoint, sharedVerts[0], sharedVerts[sharedVerts.length - 1]);
+
+					// Add connection path (skip first as it's already in path)
+					for (j in 1...connectPath.path.length) {
+						path.push(connectPath.path[j]);
+					}
+
+					// Add shared vertices in correct direction
+					if (connectPath.connectsToFirst) {
+						for (v in sharedVerts) {
+							if (!pointNear(path[path.length - 1], v)) {
+								path.push(v);
+							}
 						}
-						j--;
+					} else {
+						var j = sharedVerts.length - 1;
+						while (j >= 0) {
+							if (!pointNear(path[path.length - 1], sharedVerts[j])) {
+								path.push(sharedVerts[j]);
+							}
+							j--;
+						}
 					}
 				}
 			}
@@ -244,10 +273,151 @@ class RiverGenerator {
 		return path;
 	}
 
-	// Check if polygon contains a point (by reference)
+	// Get shared vertices between two patches, ordered as they appear in p2's shape
+	private static function getSharedVerticesOrdered(p1:Patch, p2:Patch):Array<Point> {
+		var shared:Array<Point> = [];
+		var epsilon = 0.01;
+
+		// Find vertices of p2 that are also in p1
+		for (v2 in p2.shape) {
+			for (v1 in p1.shape) {
+				if (Point.distance(v1, v2) < epsilon) {
+					shared.push(v2);  // Use p2's reference
+					break;
+				}
+			}
+		}
+
+		if (shared.length < 2) return shared;
+
+		// The shared vertices should be contiguous in p2's shape
+		// Find the starting index and extract in order
+		var startIdx = -1;
+		for (i in 0...p2.shape.length) {
+			if (isInArray(shared, p2.shape[i])) {
+				startIdx = i;
+				break;
+			}
+		}
+
+		if (startIdx == -1) return shared;
+
+		// Extract contiguous shared vertices starting from startIdx
+		var ordered:Array<Point> = [];
+		var n = p2.shape.length;
+		var idx = startIdx;
+		var count = 0;
+
+		while (count < n) {
+			var v = p2.shape[idx];
+			if (isInArray(shared, v)) {
+				ordered.push(v);
+			} else if (ordered.length > 0) {
+				// Hit a non-shared vertex after finding shared ones - stop
+				break;
+			}
+			idx = (idx + 1) % n;
+			count++;
+		}
+
+		return ordered;
+	}
+
+	private static function isInArray(arr:Array<Point>, p:Point):Bool {
+		var epsilon = 0.01;
+		for (v in arr) {
+			if (Point.distance(v, p) < epsilon) return true;
+		}
+		return false;
+	}
+
+	private static function pointNear(a:Point, b:Point):Bool {
+		return Point.distance(a, b) < 0.01;
+	}
+
+	// Find path along polygon boundary from 'from' to either 'to1' or 'to2', whichever is shorter
+	private static function findConnectionPath(shape:Polygon, from:Point, to1:Point, to2:Point):{path:Array<Point>, connectsToFirst:Bool} {
+		var path1 = getPathAlongBoundary(shape, from, to1);
+		var path2 = getPathAlongBoundary(shape, from, to2);
+
+		if (path1.length == 0 && path2.length == 0) {
+			// Fallback - just use from point
+			return {path: [from], connectsToFirst: Point.distance(from, to1) < Point.distance(from, to2)};
+		} else if (path1.length == 0) {
+			return {path: path2, connectsToFirst: false};
+		} else if (path2.length == 0) {
+			return {path: path1, connectsToFirst: true};
+		} else if (path1.length <= path2.length) {
+			return {path: path1, connectsToFirst: true};
+		} else {
+			return {path: path2, connectsToFirst: false};
+		}
+	}
+
+	// Get the path along a polygon boundary from point a to point b (shortest direction)
+	private static function getPathAlongBoundary(shape:Polygon, a:Point, b:Point):Array<Point> {
+		// Find indices of a and b in the polygon
+		// First try reference equality, then fall back to geometric proximity
+		var idxA = findPointInPolygon(shape, a);
+		var idxB = findPointInPolygon(shape, b);
+
+		if (idxA == -1 || idxB == -1) {
+			// Points not found, return empty path (will skip connection)
+			return [];
+		}
+
+		if (idxA == idxB) {
+			// Same point, no path needed
+			return [shape[idxA]];
+		}
+
+		var n = shape.length;
+
+		// Forward path (idxA to idxB going forward)
+		var forward:Array<Point> = [];
+		var idx = idxA;
+		while (true) {
+			forward.push(shape[idx]);
+			if (idx == idxB) break;
+			idx = (idx + 1) % n;
+			if (forward.length > n) break; // Safety
+		}
+
+		// Backward path (idxA to idxB going backward)
+		var backward:Array<Point> = [];
+		idx = idxA;
+		while (true) {
+			backward.push(shape[idx]);
+			if (idx == idxB) break;
+			idx = (idx - 1 + n) % n;
+			if (backward.length > n) break; // Safety
+		}
+
+		// Return shorter path
+		return forward.length <= backward.length ? forward : backward;
+	}
+
+	// Find a point in a polygon, trying reference equality first, then geometric proximity
+	private static function findPointInPolygon(shape:Polygon, target:Point):Int {
+		// First try reference equality
+		for (i in 0...shape.length) {
+			if (shape[i] == target) return i;
+		}
+
+		// Fall back to geometric proximity (within small epsilon)
+		var epsilon = 0.001;
+		for (i in 0...shape.length) {
+			if (Point.distance(shape[i], target) < epsilon) return i;
+		}
+
+		return -1;
+	}
+
+	// Check if polygon contains a point (by reference or proximity)
 	private static function hasPoint(poly:Polygon, p:Point):Bool {
+		var epsilon = 0.001;
 		for (v in poly) {
-			if (v == p) return true;
+			if (v == p || Point.distance(v, p) < epsilon) return true;
 		}
 		return false;
 	}
@@ -275,10 +445,7 @@ class RiverGenerator {
 			var nx = -dy / len;
 			var ny = dx / len;
 
-			// Slight width variation for natural look
-			var localWidth = halfWidth * (0.9 + Random.float() * 0.2);
-
-			polygon.push(new Point(curr.x + nx * localWidth, curr.y + ny * localWidth));
+			polygon.push(new Point(curr.x + nx * halfWidth, curr.y + ny * halfWidth));
 		}
 
 		// Right side (reverse direction)
@@ -296,9 +463,7 @@ class RiverGenerator {
 			var nx = -dy / len;
 			var ny = dx / len;
 
-			var localWidth = halfWidth * (0.9 + Random.float() * 0.2);
-
-			polygon.push(new Point(curr.x - nx * localWidth, curr.y - ny * localWidth));
+			polygon.push(new Point(curr.x - nx * halfWidth, curr.y - ny * halfWidth));
 			i--;
 		}
 
