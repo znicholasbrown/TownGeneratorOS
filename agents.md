@@ -440,6 +440,33 @@ MapController includes a transparent background sprite allowing drag from any po
 
 ---
 
+## Debug Mode
+
+A debug visualization mode is available to display Voronoi tessellation edges overlaid on the city map.
+
+### Enable Debug Mode
+
+Toggle "Show Voronoi Edges" in the **Detail** tab of the settings panel.
+
+### What It Shows
+
+- **Red lines**: All patch (ward) boundary edges - these are the Voronoi edges
+- **Red dots**: Patch centroids
+
+### Purpose
+
+- Helps verify that rivers follow Voronoi edges correctly
+- Useful for understanding the underlying city structure
+- Diagnoses issues where buildings may appear over ward boundaries
+
+### Implementation
+
+- `GeneratorSettings.debugVoronoi` - Boolean setting
+- `CityMap.drawDebugVoronoi()` - Draws edges when enabled
+- Updates instantly without regeneration (visual-only change)
+
+---
+
 ## Known Limitations
 
 - Water bodies (lakes) are not generated (but can be imported)

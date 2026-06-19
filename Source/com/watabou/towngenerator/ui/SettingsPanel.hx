@@ -364,6 +364,21 @@ class SettingsPanel extends Sprite {
 		yPos += 22;
 
 		tab.addChild(createSliderRow("River Width:", GeneratorSettings.RIVER_WIDTH_MIN, GeneratorSettings.RIVER_WIDTH_MAX, settings.riverWidth, yPos, function(v) { settings.riverWidth = v; }));
+		yPos += 40;
+
+		// Debug settings
+		var debugLabel = createLabel("Debug", palette.dark, true);
+		debugLabel.x = 10;
+		debugLabel.y = yPos;
+		tab.addChild(debugLabel);
+		yPos += 22;
+
+		var voronoiToggle = new SimpleToggle("Show Voronoi Edges", settings.debugVoronoi, function(on:Bool) {
+			settings.debugVoronoi = on;
+		}, palette);
+		voronoiToggle.x = 10;
+		voronoiToggle.y = yPos;
+		tab.addChild(voronoiToggle);
 
 		return tab;
 	}

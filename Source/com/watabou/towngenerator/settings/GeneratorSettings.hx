@@ -93,6 +93,11 @@ class GeneratorSettings {
 	public var palette(default, set):Palette = Palette.DEFAULT;
 	public var paletteName(default, set):String = "default";
 
+	// ===== DEBUG =====
+
+	// Show Voronoi tessellation edges
+	public var debugVoronoi(default, set):Bool = false;
+
 	// Stroke widths
 	public var normalStroke(default, set):Float = 0.300;
 	public var thickStroke(default, set):Float = 1.800;
@@ -316,6 +321,15 @@ class GeneratorSettings {
 			onVisualChange.dispatch();
 		}
 		return thinStroke;
+	}
+
+	function set_debugVoronoi(v:Bool):Bool {
+		if (debugVoronoi != v) {
+			debugVoronoi = v;
+			onChange.dispatch();
+			onVisualChange.dispatch();
+		}
+		return debugVoronoi;
 	}
 
 	// ===== Serialization for URL =====

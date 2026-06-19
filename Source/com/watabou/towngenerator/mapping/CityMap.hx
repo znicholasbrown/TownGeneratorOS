@@ -32,6 +32,7 @@ class CityMap extends Sprite {
 	private var roadShapes:Array<Shape>;
 	private var wallShape:Shape;
 	private var riverShape:Shape;
+	private var debugShape:Shape;
 
 	private var brush:Brush;
 
@@ -85,6 +86,11 @@ class CityMap extends Sprite {
 
 		if (model.citadel != null)
 			drawWall(wallShape.graphics, cast(model.citadel.ward, Castle).wall, true);
+
+		// Draw debug Voronoi tessellation (on top of everything)
+		debugShape = new Shape();
+		addChild(debugShape);
+		drawDebugVoronoi(debugShape.graphics);
 	}
 
 	// Draw a single patch
@@ -141,6 +147,10 @@ class CityMap extends Sprite {
 			drawWall(wallShape.graphics, model.wall, false);
 		if (model.citadel != null)
 			drawWall(wallShape.graphics, cast(model.citadel.ward, Castle).wall, true);
+
+		// Redraw debug Voronoi
+		debugShape.graphics.clear();
+		drawDebugVoronoi(debugShape.graphics);
 	}
 
 	private function drawRoad( g:Graphics, road:Street ):Void {
@@ -203,6 +213,29 @@ class CityMap extends Sprite {
 			// Draw subtle outline
 			g.lineStyle(Brush.THIN_STROKE, palette.medium, 0.5);
 			g.drawPolygon(river.polygon);
+		}
+	}
+
+	private function drawDebugVoronoi(g:Graphics):Void {
+		if (!GeneratorSettings.instance.debugVoronoi) return;
+
+		// Draw all patch edges as thin red lines
+		g.lineStyle(0.3, 0xFF0000, 0.8);
+
+		for (patch in model.patches) {
+			patch.shape.forEdge(function(a:Point, b:Point) {
+				g.moveTo(a.x, a.y);
+				g.lineTo(b.x, b.y);
+			});
+		}
+
+		// Draw patch centroids as small circles
+		g.lineStyle(0.0);
+		for (patch in model.patches) {
+			var c = patch.shape.centroid;
+			g.beginFill(0xFF0000, 0.5);
+			g.drawCircle(c.x, c.y, 1.5);
+			g.endFill();
 		}
 	}
 }
