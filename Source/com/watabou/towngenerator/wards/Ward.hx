@@ -9,15 +9,34 @@ import com.watabou.utils.Random;
 import com.watabou.towngenerator.building.Cutter;
 import com.watabou.towngenerator.building.Patch;
 import com.watabou.towngenerator.building.Model;
+import com.watabou.towngenerator.settings.GeneratorSettings;
 
 using com.watabou.utils.ArrayExtender;
 using com.watabou.utils.PointExtender;
 
 class Ward {
 
-	public static inline var MAIN_STREET	= 2.0;
-	public static inline var REGULAR_STREET	= 1.0;
-	public static inline var ALLEY			= 0.6;
+	// Default values (used if settings not available)
+	public static inline var DEFAULT_MAIN_STREET	= 2.0;
+	public static inline var DEFAULT_REGULAR_STREET	= 1.0;
+	public static inline var DEFAULT_ALLEY			= 0.6;
+
+	// Dynamic getters for configurable values
+	public static var MAIN_STREET(get, never):Float;
+	public static var REGULAR_STREET(get, never):Float;
+	public static var ALLEY(get, never):Float;
+
+	static function get_MAIN_STREET():Float {
+		return GeneratorSettings.instance.mainStreetWidth;
+	}
+
+	static function get_REGULAR_STREET():Float {
+		return GeneratorSettings.instance.regularStreetWidth;
+	}
+
+	static function get_ALLEY():Float {
+		return GeneratorSettings.instance.alleyWidth;
+	}
 
 	public var model : Model;
 	public var patch : Patch;

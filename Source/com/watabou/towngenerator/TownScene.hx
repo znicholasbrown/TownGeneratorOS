@@ -1,60 +1,132 @@
 package com.watabou.towngenerator;
 
 import openfl.display.Sprite;
+import openfl.events.MouseEvent;
 
 import com.watabou.coogee.Scene;
 
 import com.watabou.towngenerator.building.Model;
 import com.watabou.towngenerator.mapping.CityMap;
-import com.watabou.towngenerator.ui.CitySizeButton;
+import com.watabou.towngenerator.settings.GeneratorSettings;
+import com.watabou.towngenerator.ui.SettingsPanel;
 import com.watabou.towngenerator.ui.Tooltip;
 
 class TownScene extends Scene {
 
-	private var buttons	: Sprite;
-	private var map		: CityMap;
+	private var map:CityMap;
+	private var settingsPanel:SettingsPanel;
+	private var panelContainer:Sprite;
+	private var toggleButton:Sprite;
+	private var panelVisible:Bool = true;
+
+	private static inline var PANEL_WIDTH:Float = 280;
 
 	public function new() {
 		super();
 
-		map = new CityMap( Model.instance );
-		addChild( map );
+		// City map
+		map = new CityMap(Model.instance);
+		addChild(map);
 
-		addChild( new Tooltip() );
+		// Tooltip for ward info
+		addChild(new Tooltip());
 
-		buttons = new Sprite();
-		addChild( buttons );
+		// Settings panel container
+		panelContainer = new Sprite();
+		addChild(panelContainer);
 
-		var smallTown = new CitySizeButton( "Small Town", 6, 10 );
-		var largeTown = new CitySizeButton( "Large Town", 10, 15 );
-		var smallCity = new CitySizeButton( "Small City", 15, 24 );
-		var largeCity = new CitySizeButton( "Large City", 24, 40 );
+		// Create HaxeUI settings panel
+		settingsPanel = new SettingsPanel();
+		settingsPanel.onGenerate.add(regenerateCity);
+		settingsPanel.onClose.add(togglePanel);
 
-		var pos = 0.0;
-		for (btn in [smallTown, largeTown, smallCity, largeCity]) {
-			btn.y = pos;
-			pos += btn.height + 1;
-			buttons.addChild( btn );
-		}
+		// Add panel to HaxeUI root and then to our container
+		panelContainer.addChild(settingsPanel);
+
+		// Toggle button
+		toggleButton = createToggleButton();
+		addChild(toggleButton);
 	}
 
-	private var scale(get,set) : Float;
-	private inline function get_scale():Float
+	private function createToggleButton():Sprite {
+		var btn = new Sprite();
+		var g = btn.graphics;
+
+		// Draw hamburger menu icon
+		g.beginFill(0x67635c);
+		g.drawRect(0, 0, 32, 32);
+		g.endFill();
+
+		g.beginFill(0xccc5b8);
+		g.drawRect(6, 8, 20, 3);
+		g.drawRect(6, 14, 20, 3);
+		g.drawRect(6, 20, 20, 3);
+		g.endFill();
+
+		btn.buttonMode = true;
+		btn.addEventListener(MouseEvent.CLICK, function(_) { togglePanel(); });
+
+		return btn;
+	}
+
+	private function togglePanel():Void {
+		panelVisible = !panelVisible;
+		panelContainer.visible = panelVisible;
+		layout();
+	}
+
+	private function regenerateCity():Void {
+		var settings = GeneratorSettings.instance;
+
+		// Create new model with current settings
+		new Model(settings.size, settings.seed);
+
+		// Recreate the map
+		if (map != null && contains(map)) {
+			removeChild(map);
+		}
+		map = new CityMap(Model.instance);
+		addChildAt(map, 0);
+
+		layout();
+	}
+
+	private var scale(get, set):Float;
+
+	private inline function get_scale():Float {
 		return map.scaleX;
-	private function set_scale( value:Float ):Float
+	}
+
+	private function set_scale(value:Float):Float {
 		return (map.scaleX = map.scaleY = value);
+	}
 
 	override public function layout():Void {
-		map.x = rWidth / 2;
+		// Calculate available space for map
+		var mapAreaWidth = panelVisible ? rWidth - PANEL_WIDTH : rWidth;
+
+		// Center map in available space
+		map.x = mapAreaWidth / 2;
 		map.y = rHeight / 2;
 
-		var scaleX = rWidth / Model.instance.cityRadius;
+		// Scale map to fit
+		var scaleX = mapAreaWidth / Model.instance.cityRadius;
 		var scaleY = rHeight / Model.instance.cityRadius;
-		var scMin = Math.min( scaleX, scaleY );
-		var scMax = Math.max( scaleX, scaleY );
+		var scMin = Math.min(scaleX, scaleY);
+		var scMax = Math.max(scaleX, scaleY);
 		scale = (scMax / scMin > 2 ? scMax / 2 : scMin) * 0.5;
 
-		buttons.x = rWidth - buttons.width - 1;
-		buttons.y = 1;
+		// Position settings panel on the right
+		panelContainer.x = rWidth - PANEL_WIDTH;
+		panelContainer.y = 0;
+		settingsPanel.height = rHeight;
+
+		// Position toggle button
+		if (panelVisible) {
+			toggleButton.x = rWidth - PANEL_WIDTH - 36;
+		} else {
+			toggleButton.x = rWidth - 36;
+		}
+		toggleButton.y = 4;
 	}
 }

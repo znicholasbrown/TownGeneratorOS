@@ -7,6 +7,7 @@ import com.watabou.coogee.BitmapText.BitmapFont;
 
 import com.watabou.towngenerator.building.Model;
 import com.watabou.towngenerator.mapping.CityMap;
+import com.watabou.towngenerator.settings.GeneratorSettings;
 
 class Main extends Game {
 
@@ -22,12 +23,18 @@ class Main extends Game {
 		uiFont.letterSpacing = 1;
 		uiFont.baseLine = 8;
 
-		new Model( StateManager.size, StateManager.seed );
+		// Listen for palette changes to update stage color
+		GeneratorSettings.instance.onChange.add(function() {
+			stage.color = CityMap.palette.paper;
+		});
+
+		new Model( GeneratorSettings.instance.size, GeneratorSettings.instance.seed );
 
 		super( TownScene );
 	}
 
 	override public function getScale( w:Int, h:Int ):Float {
-		return Std.int( Capabilities.screenDPI / 24 );
+		// Cap scale to 2x max to keep UI readable
+		return Math.min(2, Std.int( Capabilities.screenDPI / 72 ));
 	}
 }

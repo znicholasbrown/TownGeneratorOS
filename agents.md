@@ -22,7 +22,7 @@ A procedural medieval city/town generator that creates randomized 2D city maps w
 Source/com/watabou/
 ├── towngenerator/           # Main application
 │   ├── Main.hx              # Entry point, initializes Model + TownScene
-│   ├── TownScene.hx         # UI scene with CityMap and size buttons
+│   ├── TownScene.hx         # UI scene with CityMap and SettingsPanel
 │   ├── StateManager.hx      # URL parameter handling (?size=X&seed=Y)
 │   ├── building/
 │   │   ├── Model.hx         # CORE: City generation algorithm
@@ -35,7 +35,13 @@ Source/com/watabou/
 │   │   ├── CityMap.hx       # Renders the city to display
 │   │   ├── Palette.hx       # 8 color schemes
 │   │   └── Brush.hx         # Stroke widths and drawing
-│   └── ui/                  # Buttons, tooltips
+│   ├── settings/            # Configuration system
+│   │   ├── GeneratorSettings.hx  # Central settings with observables
+│   │   └── FeatureMode.hx        # Feature toggle enum (Always/Never/Chance)
+│   └── ui/                  # UI components
+│       ├── SettingsPanel.hx      # Tabbed settings panel
+│       ├── Button.hx             # Legacy button
+│       └── Tooltip.hx            # Ward info tooltip
 ├── coogee/                  # Minimal game framework (Scene, Game, BitmapText)
 ├── geom/                    # Geometry: Polygon, Voronoi, Graph, Spline
 └── utils/                   # Random (seeded RNG), MathUtils, PerlinNoise
@@ -195,10 +201,57 @@ openfl test neko      # Build and run desktop
 
 ---
 
+## Settings System (GeneratorSettings.hx)
+
+Centralized configuration with observable properties. All settings trigger `onChange` signal when modified.
+
+**Generation Settings:**
+- `size` (6-40) - Number of city patches/wards
+- `seed` - Random seed for reproducibility
+- `plazaMode`, `citadelMode`, `wallsMode` - FeatureMode enum (Always/Never/Chance)
+
+**Ward Distribution:**
+- `wardWeights` - Array of WardWeight objects with per-type weights
+- `wardPreset` - Named presets: "balanced", "commercial", "military", "noble", "slums"
+
+**Street & Building:**
+- `mainStreetWidth`, `regularStreetWidth`, `alleyWidth` - Configurable widths
+- `gridChaosMultiplier`, `sizeVariationMultiplier`, `emptyLotMultiplier` - Building style
+
+**Advanced:**
+- `voronoiRelaxation` - Relaxation iterations (0-10)
+- `junctionMergeDistance` - Vertex merge threshold (4-16)
+
+**Visual:**
+- `palette` - Active Palette instance
+- `paletteName` - Palette identifier for UI
+- `normalStroke`, `thickStroke`, `thinStroke` - Line widths
+
+---
+
+## UI System (SettingsPanel.hx)
+
+Custom OpenFL-based tabbed settings panel on the right side of the screen.
+
+**Tabs:**
+1. **Gen** - City size slider, seed input, feature toggles (Plaza, Citadel, Walls), Generate button
+2. **Wards** - Ward distribution presets
+3. **Detail** - Street widths, building chaos/density sliders
+4. **Style** - Palette picker grid
+
+**UI Components (in SettingsPanel.hx):**
+- `SimpleButton` - Click button with hover state
+- `SimpleSlider` - Draggable value slider
+- `SimpleToggle` - Checkbox toggle
+- `SimpleInput` - Text input field
+- `TabButton` - Tab navigation button
+- `PaletteButton` - Color palette selector with swatch
+
+---
+
 ## Known Limitations
 
 - No waterbodies/rivers (mentioned in README as missing)
-- No UI for changing palettes (hardcoded)
 - Source may lag behind live demo version
 
 ---

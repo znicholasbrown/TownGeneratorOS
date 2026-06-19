@@ -11,6 +11,8 @@ import com.watabou.utils.MathUtils;
 import com.watabou.utils.Random;
 
 import com.watabou.towngenerator.wards.*;
+import com.watabou.towngenerator.settings.GeneratorSettings;
+import com.watabou.towngenerator.settings.FeatureMode;
 
 using com.watabou.utils.PointExtender;
 using com.watabou.utils.ArrayExtender;
@@ -67,13 +69,29 @@ class Model {
 	public var roads	: Array<Street>;
 
 	public function new( nPatches=-1, seed=-1 ) {
+		var settings = GeneratorSettings.instance;
 
 		if (seed > 0) Random.reset( seed );
-		this.nPatches = nPatches != -1 ? nPatches : 15;
+		else if (settings.seed > 0) Random.reset( settings.seed );
 
-		plazaNeeded		= Random.bool();
-		citadelNeeded	= Random.bool();
-		wallsNeeded		= Random.bool();
+		this.nPatches = nPatches != -1 ? nPatches : settings.size;
+
+		// Feature toggles from settings
+		plazaNeeded = switch(settings.plazaMode) {
+			case FeatureMode.Always: true;
+			case FeatureMode.Never: false;
+			case FeatureMode.Chance: Random.bool();
+		};
+		citadelNeeded = switch(settings.citadelMode) {
+			case FeatureMode.Always: true;
+			case FeatureMode.Never: false;
+			case FeatureMode.Chance: Random.bool();
+		};
+		wallsNeeded = switch(settings.wallsMode) {
+			case FeatureMode.Always: true;
+			case FeatureMode.Never: false;
+			case FeatureMode.Chance: Random.bool();
+		};
 
 		do try {
 			build();
@@ -106,7 +124,8 @@ class Model {
 		var voronoi = Voronoi.build( points );
 
 		// Relaxing central wards
-		for (i in 0...3) {
+		var relaxIterations = GeneratorSettings.instance.voronoiRelaxation;
+		for (i in 0...relaxIterations) {
 			var toRelax = [for (j in 0...3) voronoi.points[j]];
 			toRelax.push( voronoi.points[nPatches] );
 			voronoi = Voronoi.relax( voronoi, toRelax );
@@ -318,7 +337,8 @@ class Model {
 				var v0:Point = w.shape[index];
 				var v1:Point = w.shape[(index + 1) % w.shape.length];
 
-				if (v0 != v1 && Point.distance( v0, v1 ) < 8) {
+				var mergeDistance = GeneratorSettings.instance.junctionMergeDistance;
+				if (v0 != v1 && Point.distance( v0, v1 ) < mergeDistance) {
 					for (w1 in patchByVertex( v1 )) if (w1 != w) {
 						w1.shape[w1.shape.indexOf( v1 )] = v0;
 						wards2clean.push( w1 );
@@ -358,13 +378,17 @@ class Model {
 					unassigned.remove( patch );
 				}
 
-		var wards = WARDS.copy();
+		// Get ward array from settings (or use default)
+		var wards = GeneratorSettings.instance.buildWardArray();
+		if (wards.length == 0) wards = WARDS.copy();
 		// some shuffling
 		for (i in 0...Std.int(wards.length / 10)) {
 			var index = Random.int( 0, (wards.length - 1) );
-			var tmp = wards[index];
-			wards[index] = wards[index + 1];
-			wards[index+1] = tmp;
+			if (index + 1 < wards.length) {
+				var tmp = wards[index];
+				wards[index] = wards[index + 1];
+				wards[index+1] = tmp;
+			}
 		}
 
 		// Assigning inner city wards

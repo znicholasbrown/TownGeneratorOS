@@ -11,6 +11,7 @@ import com.watabou.geom.Polygon;
 import com.watabou.towngenerator.wards.*;
 import com.watabou.towngenerator.building.CurtainWall;
 import com.watabou.towngenerator.building.Model;
+import com.watabou.towngenerator.settings.GeneratorSettings;
 
 using com.watabou.utils.ArrayExtender;
 using com.watabou.utils.GraphicsExtender;
@@ -18,7 +19,11 @@ using com.watabou.utils.PointExtender;
 
 class CityMap extends Sprite {
 
-	public static var palette = Palette.DEFAULT;
+	// Get palette from settings
+	public static var palette(get, never):Palette;
+	static function get_palette():Palette {
+		return GeneratorSettings.instance.palette;
+	}
 
 	private var patches	: Array<PatchView>;
 
