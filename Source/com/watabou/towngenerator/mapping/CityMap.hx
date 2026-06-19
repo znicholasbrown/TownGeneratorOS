@@ -205,14 +205,14 @@ class CityMap extends Sprite {
 		if (model.rivers == null || model.rivers.length == 0) return;
 
 		for (river in model.rivers) {
-			// Draw river fill
-			g.beginFill(palette.water);
-			g.drawPolygon(river.polygon);
-			g.endFill();
+			// Draw river using layered strokes (like roads) for a nice bank effect
+			// Outer stroke - darker, defines river banks
+			g.lineStyle(river.width + Brush.NORMAL_STROKE * 2, palette.medium, 1, false, null, CapsStyle.ROUND);
+			g.drawPolyline(river.path);
 
-			// Draw subtle outline
-			g.lineStyle(Brush.THIN_STROKE, palette.medium, 0.5);
-			g.drawPolygon(river.polygon);
+			// Inner stroke - water color fill
+			g.lineStyle(river.width, palette.water, 1, false, null, CapsStyle.ROUND);
+			g.drawPolyline(river.path);
 		}
 	}
 
@@ -238,23 +238,21 @@ class CityMap extends Sprite {
 			g.endFill();
 		}
 
-		// Draw river center paths as green lines with vertex markers
+		// Draw river center paths as bright green lines with vertex markers
 		if (model.rivers != null) {
 			for (river in model.rivers) {
-				// Draw the center path as a thick green line
-				g.lineStyle(0.8, 0x00FF00, 0.9);
-				if (river.path.length > 0) {
-					g.moveTo(river.path[0].x, river.path[0].y);
-					for (i in 1...river.path.length) {
-						g.lineTo(river.path[i].x, river.path[i].y);
-					}
-				}
+				// Draw the center path as a bright line on top of everything
+				g.lineStyle(0.5, 0x00FF00, 1.0);
+				g.drawPolyline(river.path);
 
-				// Draw vertices on the path as green dots
+				// Draw vertices on the path as numbered dots
 				g.lineStyle(0.0);
-				for (v in river.path) {
-					g.beginFill(0x00FF00, 1.0);
-					g.drawCircle(v.x, v.y, 0.8);
+				for (i in 0...river.path.length) {
+					var v = river.path[i];
+					// Alternate colors to show path direction
+					var color = (i % 2 == 0) ? 0x00FF00 : 0xFFFF00;
+					g.beginFill(color, 1.0);
+					g.drawCircle(v.x, v.y, 1.0);
 					g.endFill();
 				}
 			}

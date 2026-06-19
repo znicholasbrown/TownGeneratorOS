@@ -34,11 +34,15 @@ class RiverGenerator {
 		var edgePath = extractEdgePath(model, patchPath);
 		if (edgePath.length < 2) return null;
 
-		// Create river polygon with width
-		var riverPolygon = createRiverPolygon(edgePath, riverWidth);
+		// Clean the path to remove backtracking before storing
+		var cleanedPath = pathBacktracking(edgePath);
+		if (cleanedPath.length < 2) return null;
+
+		// Create river polygon with width (uses cleaned path internally)
+		var riverPolygon = createRiverPolygon(cleanedPath, riverWidth);
 
 		return {
-			path: edgePath,
+			path: cleanedPath,  // Store cleaned path for debug visualization
 			polygon: riverPolygon,
 			width: riverWidth
 		};
@@ -423,51 +427,128 @@ class RiverGenerator {
 	}
 
 	// Create river polygon from center path with width
+	// Uses proper miter joins at corners to avoid self-intersection
+	// Expects path to already be cleaned (no backtracking)
 	private static function createRiverPolygon(path:Polygon, width:Float):Polygon {
 		var polygon = new Polygon();
 		var halfWidth = width / 2;
 
 		if (path.length < 2) return polygon;
 
-		// Left side (forward direction)
+		// Calculate offset points for left side
+		var leftPoints:Array<Point> = [];
+		var rightPoints:Array<Point> = [];
+
 		for (i in 0...path.length) {
 			var curr = path[i];
-			var prev = i > 0 ? path[i - 1] : curr;
-			var next = i < path.length - 1 ? path[i + 1] : curr;
 
-			// Calculate tangent direction
-			var dx = next.x - prev.x;
-			var dy = next.y - prev.y;
-			var len = Math.sqrt(dx * dx + dy * dy);
-			if (len == 0) len = 1;
+			// Get incoming and outgoing edge directions
+			var inDir:Point = null;
+			var outDir:Point = null;
 
-			// Perpendicular (normal) direction - left side
-			var nx = -dy / len;
-			var ny = dx / len;
+			if (i > 0) {
+				var prev = path[i - 1];
+				inDir = new Point(curr.x - prev.x, curr.y - prev.y);
+				var inLen = Math.sqrt(inDir.x * inDir.x + inDir.y * inDir.y);
+				if (inLen > 0) { inDir.x /= inLen; inDir.y /= inLen; }
+			}
 
-			polygon.push(new Point(curr.x + nx * halfWidth, curr.y + ny * halfWidth));
+			if (i < path.length - 1) {
+				var next = path[i + 1];
+				outDir = new Point(next.x - curr.x, next.y - curr.y);
+				var outLen = Math.sqrt(outDir.x * outDir.x + outDir.y * outDir.y);
+				if (outLen > 0) { outDir.x /= outLen; outDir.y /= outLen; }
+			}
+
+			// Calculate the offset direction (perpendicular to bisector)
+			var offsetDir:Point;
+			if (inDir == null) {
+				// First point - use outgoing perpendicular
+				offsetDir = new Point(-outDir.y, outDir.x);
+			} else if (outDir == null) {
+				// Last point - use incoming perpendicular
+				offsetDir = new Point(-inDir.y, inDir.x);
+			} else {
+				// Middle point - use miter join
+				// The miter direction bisects the angle between -inDir and outDir
+				var bisector = new Point(outDir.x - inDir.x, outDir.y - inDir.y);
+				var bisLen = Math.sqrt(bisector.x * bisector.x + bisector.y * bisector.y);
+
+				if (bisLen < 0.001) {
+					// Straight line - just use perpendicular
+					offsetDir = new Point(-inDir.y, inDir.x);
+				} else {
+					bisector.x /= bisLen;
+					bisector.y /= bisLen;
+
+					// The perpendicular to the bisector gives us the miter direction
+					offsetDir = new Point(-bisector.y, bisector.x);
+
+					// Calculate miter length adjustment
+					// miterLength = 1 / sin(angle/2)
+					var dot = inDir.x * outDir.x + inDir.y * outDir.y;
+					var cross = inDir.x * outDir.y - inDir.y * outDir.x;
+
+					// Check if we need to flip the offset direction
+					if (cross < 0) {
+						offsetDir.x = -offsetDir.x;
+						offsetDir.y = -offsetDir.y;
+					}
+
+					// Limit miter to prevent spikes at sharp angles
+					var sinHalfAngle = Math.sqrt((1 - dot) / 2);
+					if (sinHalfAngle > 0.1) {
+						var miterScale = 1 / sinHalfAngle;
+						// Cap miter length to 2x normal width
+						miterScale = Math.min(miterScale, 2.0);
+						offsetDir.x *= miterScale;
+						offsetDir.y *= miterScale;
+					}
+				}
+			}
+
+			leftPoints.push(new Point(curr.x + offsetDir.x * halfWidth, curr.y + offsetDir.y * halfWidth));
+			rightPoints.push(new Point(curr.x - offsetDir.x * halfWidth, curr.y - offsetDir.y * halfWidth));
 		}
 
-		// Right side (reverse direction)
-		var i = path.length - 1;
+		// Build polygon: left side forward, then right side backward
+		for (p in leftPoints) {
+			polygon.push(p);
+		}
+
+		var i = rightPoints.length - 1;
 		while (i >= 0) {
-			var curr = path[i];
-			var prev = i > 0 ? path[i - 1] : curr;
-			var next = i < path.length - 1 ? path[i + 1] : curr;
-
-			var dx = next.x - prev.x;
-			var dy = next.y - prev.y;
-			var len = Math.sqrt(dx * dx + dy * dy);
-			if (len == 0) len = 1;
-
-			var nx = -dy / len;
-			var ny = dx / len;
-
-			polygon.push(new Point(curr.x - nx * halfWidth, curr.y - ny * halfWidth));
+			polygon.push(rightPoints[i]);
 			i--;
 		}
 
 		return polygon;
+	}
+
+	// Remove backtracking from path (A->B->A patterns) and consecutive duplicates
+	private static function pathBacktracking(path:Polygon):Polygon {
+		if (path.length < 2) return path;
+
+		var clean = new Polygon();
+		clean.push(path[0]);
+
+		for (i in 1...path.length) {
+			var curr = path[i];
+			var last = clean[clean.length - 1];
+
+			// Skip if same as last point
+			if (pointNear(curr, last)) continue;
+
+			// Skip if this would create backtracking (same as second-to-last)
+			if (clean.length >= 2) {
+				var secondLast = clean[clean.length - 2];
+				if (pointNear(curr, secondLast)) continue;
+			}
+
+			clean.push(curr);
+		}
+
+		return clean;
 	}
 }
 
