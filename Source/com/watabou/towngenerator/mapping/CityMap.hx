@@ -50,11 +50,9 @@ class CityMap extends Sprite {
 
 		brush = new Brush(palette);
 
-		// Draw river first (bottom layer)
+		// Draw rivers first (bottom layer)
 		riverShape = new Shape();
-		if (model.river != null) {
-			drawRiver(riverShape.graphics);
-		}
+		drawRivers(riverShape.graphics);
 		addChild(riverShape);
 
 		// Draw roads
@@ -122,11 +120,9 @@ class CityMap extends Sprite {
 	public function redraw():Void {
 		brush = new Brush(palette);
 
-		// Redraw river
+		// Redraw rivers
 		riverShape.graphics.clear();
-		if (model.river != null) {
-			drawRiver(riverShape.graphics);
-		}
+		drawRivers(riverShape.graphics);
 
 		// Redraw roads
 		for (i in 0...roadShapes.length) {
@@ -195,16 +191,18 @@ class CityMap extends Sprite {
 		}
 	}
 
-	private function drawRiver(g:Graphics):Void {
-		if (model.river == null) return;
+	private function drawRivers(g:Graphics):Void {
+		if (model.rivers == null || model.rivers.length == 0) return;
 
-		// Draw river fill
-		g.beginFill(palette.water);
-		g.drawPolygon(model.river.polygon);
-		g.endFill();
+		for (river in model.rivers) {
+			// Draw river fill
+			g.beginFill(palette.water);
+			g.drawPolygon(river.polygon);
+			g.endFill();
 
-		// Draw subtle outline
-		g.lineStyle(Brush.THIN_STROKE, palette.medium, 0.5);
-		g.drawPolygon(model.river.polygon);
+			// Draw subtle outline
+			g.lineStyle(Brush.THIN_STROKE, palette.medium, 0.5);
+			g.drawPolygon(river.polygon);
+		}
 	}
 }

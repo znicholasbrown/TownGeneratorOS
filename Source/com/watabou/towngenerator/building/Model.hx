@@ -70,8 +70,8 @@ class Model {
 	public var streets	: Array<Street>;
 	public var roads	: Array<Street>;
 
-	// River data
-	public var river	: RiverData;
+	// River data (multiple rivers supported)
+	public var rivers	: Array<RiverData>;
 
 	public function new( nPatches=-1, seed=-1 ) {
 		var settings = GeneratorSettings.instance;
@@ -115,31 +115,25 @@ class Model {
 	private function build():Void {
 		streets = [];
 		roads = [];
-		river = null;
+		rivers = [];
 
 		buildPatches();
 		optimizeJunctions();
-		buildRiver();
+		buildRivers();
 		buildWalls();
 		buildStreets();
 		createWards();
 		buildGeometry();
 	}
 
-	private function buildRiver():Void {
+	private function buildRivers():Void {
 		if (!riverNeeded) return;
 
-		// Calculate radius from inner patches (cityRadius isn't set yet)
-		var radius:Float = 0;
-		for (patch in inner) {
-			for (v in patch.shape) {
-				var dist = Math.sqrt(v.x * v.x + v.y * v.y);
-				if (dist > radius) radius = dist;
-			}
+		// Generate river(s) following Voronoi edges
+		var river = RiverGenerator.generate(this);
+		if (river != null) {
+			rivers.push(river);
 		}
-
-		// Generate river through the city
-		river = RiverGenerator.generate(radius, center);
 	}
 
 	private function buildPatches():Void {
@@ -483,5 +477,36 @@ class Model {
 	// it's surrounded by city wards and water
 	public function isEnclosed( patch:Patch ):Bool {
 		return patch.withinCity && (patch.withinWalls || getNeighbours( patch ).every( function( p:Patch ) return p.withinCity ));
+	}
+
+	// Get patches that touch the outer boundary (not fully enclosed)
+	public function getBoundaryPatches():Array<Patch> {
+		return patches.filter( function( p:Patch ) return !isEnclosed( p ) );
+	}
+
+	// Get the shared edge vertices between two adjacent patches
+	public function getSharedEdge( p1:Patch, p2:Patch ):Array<Point> {
+		var shared:Array<Point> = [];
+		p1.shape.forEdge( function( a:Point, b:Point ) {
+			// If p2 has the reverse edge (b,a), these patches share this edge
+			if (p2.shape.findEdge( b, a ) != -1) {
+				shared.push( a );
+				shared.push( b );
+			}
+		} );
+		return shared;
+	}
+
+	// Get shared edge length between two patches
+	public function getSharedEdgeLength( p1:Patch, p2:Patch ):Float {
+		var edge = getSharedEdge( p1, p2 );
+		if (edge.length < 2) return 0;
+		var len:Float = 0;
+		var i = 0;
+		while (i < edge.length - 1) {
+			len += Point.distance( edge[i], edge[i + 1] );
+			i += 2;
+		}
+		return len;
 	}
 }

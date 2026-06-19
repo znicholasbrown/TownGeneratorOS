@@ -367,14 +367,22 @@ The map supports pan/zoom navigation via mouse, keyboard, and UI controls.
 
 ## River Generation
 
-Rivers can be optionally generated through cities using the River toggle in the Gen tab.
+Rivers can be optionally generated through cities using the River toggle in the Gen tab. Rivers follow **Voronoi edges** (ward boundaries) rather than cutting through buildings, creating natural waterways that separate districts.
 
 ### Generation Algorithm
 
-1. Pick two points on opposite edges of the city
-2. Generate a meandering path using sinusoidal noise
-3. Create a polygon with variable width around the path
-4. Render as bottom layer (under roads and buildings)
+1. **Entry/Exit Selection**: Pick boundary patches (not fully enclosed) on opposite sides of the city
+2. **A* Pathfinding**: Find shortest path through patch adjacency graph from entry to exit
+3. **Edge Extraction**: Extract the shared Voronoi edges between consecutive patches in the path
+4. **Polygon Creation**: Offset the edge path perpendicular by river width to create filled polygon
+5. **Rendering**: Draw as bottom layer (under roads and buildings)
+
+### Why Voronoi Edges?
+
+- Rivers naturally follow ward boundaries, not cutting through buildings
+- Integrates with existing patch/ward structure
+- Patch-level A* is efficient (6-40 nodes vs hundreds of vertices)
+- Supports multiple non-overlapping rivers
 
 ### Settings
 
@@ -387,8 +395,9 @@ Rivers can be optionally generated through cities using the River toggle in the 
 
 | Class | Purpose |
 |-------|---------|
-| `RiverGenerator` | Generates river path and polygon |
+| `RiverGenerator` | A* pathfinding on patches, edge extraction, polygon creation |
 | `RiverData` | Data structure (path, polygon, width) |
+| `Model` | Helper methods: `getSharedEdge()`, `getBoundaryPatches()`, `rivers` array |
 
 ---
 
