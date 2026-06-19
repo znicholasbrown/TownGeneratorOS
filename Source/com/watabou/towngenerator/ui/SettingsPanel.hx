@@ -35,6 +35,7 @@ class SettingsPanel extends Sprite {
 	private var plazaToggle:SimpleToggle;
 	private var citadelToggle:SimpleToggle;
 	private var wallsToggle:SimpleToggle;
+	private var riverToggle:SimpleToggle;
 	private var generateBtn:SimpleButton;
 	private var paletteButtons:Array<PaletteButton>;
 
@@ -241,6 +242,14 @@ class SettingsPanel extends Sprite {
 		wallsToggle.x = 10;
 		wallsToggle.y = yPos;
 		tab.addChild(wallsToggle);
+		yPos += 26;
+
+		riverToggle = new SimpleToggle("River", settings.riverMode != FeatureMode.Never, function(on:Bool) {
+			settings.riverMode = on ? FeatureMode.Always : FeatureMode.Never;
+		}, palette);
+		riverToggle.x = 10;
+		riverToggle.y = yPos;
+		tab.addChild(riverToggle);
 		yPos += 40;
 
 		// Generate button
@@ -345,6 +354,16 @@ class SettingsPanel extends Sprite {
 		yPos += 26;
 
 		tab.addChild(createSliderRow("Empty:", 0.0, 2.0, settings.emptyLotMultiplier, yPos, function(v) { settings.emptyLotMultiplier = v; }));
+		yPos += 35;
+
+		// Water settings
+		var waterLabel = createLabel("Water", palette.dark, true);
+		waterLabel.x = 10;
+		waterLabel.y = yPos;
+		tab.addChild(waterLabel);
+		yPos += 22;
+
+		tab.addChild(createSliderRow("River Width:", GeneratorSettings.RIVER_WIDTH_MIN, GeneratorSettings.RIVER_WIDTH_MAX, settings.riverWidth, yPos, function(v) { settings.riverWidth = v; }));
 
 		return tab;
 	}
@@ -495,21 +514,25 @@ class SimpleSlider extends Sprite {
 		super();
 		this.min = min;
 		this.max = max;
-		this.value = initial;
+		this.value = Math.max(min, Math.min(max, initial));
 		this.sliderWidth = width;
 		this.callback = onChange;
 		this.palette = pal;
 
-		// Track
+		// Track (make it clickable with larger hit area)
 		graphics.beginFill(pal.light);
 		graphics.lineStyle(1, pal.dark);
 		graphics.drawRect(0, 8, width, 6);
+		graphics.endFill();
+		// Transparent hit area above and below track
+		graphics.beginFill(0x000000, 0);
+		graphics.drawRect(0, 0, width, 22);
 		graphics.endFill();
 
 		// Thumb
 		thumb = new Sprite();
 		thumb.graphics.beginFill(pal.dark);
-		thumb.graphics.drawRect(-6, 0, 12, 18);
+		thumb.graphics.drawRect(-6, 0, 12, 22);
 		thumb.graphics.endFill();
 		thumb.buttonMode = true;
 		addChild(thumb);
@@ -527,43 +550,67 @@ class SimpleSlider extends Sprite {
 		updateThumb();
 
 		thumb.addEventListener(MouseEvent.MOUSE_DOWN, onThumbDown);
-		addEventListener(MouseEvent.CLICK, onTrackClick);
+		addEventListener(MouseEvent.MOUSE_DOWN, onTrackDown);
 	}
 
 	private function updateThumb():Void {
-		var ratio = (value - min) / (max - min);
+		var ratio = (max > min) ? (value - min) / (max - min) : 0;
+		ratio = Math.max(0, Math.min(1, ratio));
 		thumb.x = ratio * sliderWidth;
 		valueLabel.text = Std.string(Math.round(value * 10) / 10);
 	}
 
 	private function onThumbDown(e:MouseEvent):Void {
+		e.stopPropagation();
+		if (stage == null) return;
 		dragging = true;
 		stage.addEventListener(MouseEvent.MOUSE_MOVE, onDrag);
-		stage.addEventListener(MouseEvent.MOUSE_UP, onDragEnd);
+		stage.addEventListener(MouseEvent.MOUSE_UP, onMouseUp);
+		stage.addEventListener(Event.MOUSE_LEAVE, onMouseLeave);
 	}
 
 	private function onDrag(e:MouseEvent):Void {
-		if (dragging) {
-			var localX = globalToLocal(new openfl.geom.Point(e.stageX, e.stageY)).x;
-			var ratio = Math.max(0, Math.min(1, localX / sliderWidth));
-			value = min + ratio * (max - min);
-			updateThumb();
-			if (callback != null) callback(value);
+		if (!dragging) return;
+		// Use globalToLocal to properly handle nested transforms
+		var localPoint = globalToLocal(new openfl.geom.Point(e.stageX, e.stageY));
+		// Clamp to valid range
+		var ratio = Math.max(0, Math.min(1, localPoint.x / sliderWidth));
+		value = min + ratio * (max - min);
+		updateThumb();
+		if (callback != null) callback(value);
+	}
+
+	private function onMouseUp(_:MouseEvent):Void {
+		endDrag();
+	}
+
+	private function onMouseLeave(_:Event):Void {
+		endDrag();
+	}
+
+	private function endDrag():Void {
+		if (!dragging) return;
+		dragging = false;
+		if (stage != null) {
+			stage.removeEventListener(MouseEvent.MOUSE_MOVE, onDrag);
+			stage.removeEventListener(MouseEvent.MOUSE_UP, onMouseUp);
+			stage.removeEventListener(Event.MOUSE_LEAVE, onMouseLeave);
 		}
 	}
 
-	private function onDragEnd(_):Void {
-		dragging = false;
-		stage.removeEventListener(MouseEvent.MOUSE_MOVE, onDrag);
-		stage.removeEventListener(MouseEvent.MOUSE_UP, onDragEnd);
-	}
-
-	private function onTrackClick(e:MouseEvent):Void {
-		if (!dragging) {
-			var ratio = Math.max(0, Math.min(1, e.localX / sliderWidth));
-			value = min + ratio * (max - min);
-			updateThumb();
-			if (callback != null) callback(value);
+	private function onTrackDown(e:MouseEvent):Void {
+		if (dragging) return;
+		// Jump to click position
+		var ratio = Math.max(0, Math.min(1, e.localX / sliderWidth));
+		value = min + ratio * (max - min);
+		updateThumb();
+		if (callback != null) callback(value);
+		// Start dragging from new position
+		if (stage != null) {
+			dragging = true;
+			stage.addEventListener(MouseEvent.MOUSE_MOVE, onDrag);
+			stage.addEventListener(MouseEvent.MOUSE_UP, onMouseUp);
+			stage.addEventListener(Event.MOUSE_LEAVE, onMouseLeave);
 		}
 	}
 }

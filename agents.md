@@ -29,7 +29,8 @@ Source/com/watabou/
 │   │   ├── Patch.hx         # City region/ward container
 │   │   ├── Topology.hx      # Street graph/pathfinding
 │   │   ├── CurtainWall.hx   # Walls and fortifications
-│   │   └── Cutter.hx        # Polygon subdivision utilities
+│   │   ├── Cutter.hx        # Polygon subdivision utilities
+│   │   └── RiverGenerator.hx # River path generation
 │   ├── wards/               # 13 ward types (see below)
 │   ├── mapping/
 │   │   ├── CityMap.hx           # Renders generated city
@@ -46,6 +47,8 @@ Source/com/watabou/
 │   │   └── FeatureMode.hx       # Feature toggle enum (Always/Never/Chance)
 │   └── ui/                      # UI components
 │       ├── SettingsPanel.hx     # Tabbed settings panel
+│       ├── MapController.hx     # Pan/zoom input handling
+│       ├── MapControls.hx       # Zoom UI widget
 │       ├── Button.hx            # Legacy button
 │       └── Tooltip.hx           # Ward info tooltip
 ├── coogee/                  # Minimal game framework (Scene, Game, BitmapText)
@@ -311,9 +314,126 @@ Click "Export JSON" button to download the current city as `city_export.json`.
 
 ---
 
+## Map Navigation Controls
+
+The map supports pan/zoom navigation via mouse, keyboard, and UI controls.
+
+### Mouse Controls
+
+| Action | Control |
+|--------|---------|
+| **Pan** | Click + Drag |
+| **Zoom** | Mouse wheel (zooms toward cursor) |
+| **Reset View** | Double-click |
+
+### Keyboard Controls
+
+| Action | Key |
+|--------|-----|
+| **Pan Up** | W / Arrow Up |
+| **Pan Down** | S / Arrow Down |
+| **Pan Left** | A / Arrow Left |
+| **Pan Right** | D / Arrow Right |
+| **Zoom In** | + / = / Z / Numpad + |
+| **Zoom Out** | - / X / Numpad - |
+| **Reset View** | R / Home |
+| **Fit to Screen** | F |
+
+### UI Controls (Bottom-Left)
+
+- **+ Button**: Zoom in
+- **Zoom Slider**: Vertical slider with logarithmic scale
+- **- Button**: Zoom out
+- **FIT Button**: Reset to default view
+- **Zoom %**: Current zoom level display
+
+### Key Classes
+
+| Class | Purpose |
+|-------|---------|
+| `MapController` | View state, mouse/keyboard input handling |
+| `MapControls` | UI widget (slider, buttons, label) |
+| `ControlButton` | Reusable button with hover state |
+| `ZoomSlider` | Vertical slider with logarithmic scale |
+
+### Zoom Range
+
+- Minimum: 0.1x (10%)
+- Maximum: 10.0x (1000%)
+- Mouse wheel step: 10% of current zoom
+- Button step: 20% of current zoom
+
+---
+
+## River Generation
+
+Rivers can be optionally generated through cities using the River toggle in the Gen tab.
+
+### Generation Algorithm
+
+1. Pick two points on opposite edges of the city
+2. Generate a meandering path using sinusoidal noise
+3. Create a polygon with variable width around the path
+4. Render as bottom layer (under roads and buildings)
+
+### Settings
+
+| Setting | Location | Range | Description |
+|---------|----------|-------|-------------|
+| **River Toggle** | Gen tab | On/Off | Enable/disable river generation |
+| **River Width** | Detail tab | 2.0-10.0 | Width of the river |
+
+### Key Classes
+
+| Class | Purpose |
+|-------|---------|
+| `RiverGenerator` | Generates river path and polygon |
+| `RiverData` | Data structure (path, polygon, width) |
+
+---
+
+## Real-Time Updates
+
+Visual settings update the map instantly without requiring regeneration.
+
+### Visual Settings (Instant Update)
+
+- Palette changes
+- Stroke width changes (normal, thick, thin)
+
+### Generation Settings (Require Regeneration)
+
+- City size
+- Seed
+- Feature toggles (plaza, citadel, walls, river)
+- Ward distribution
+
+### Implementation
+
+- `GeneratorSettings.onVisualChange` signal dispatched for visual-only changes
+- `CityMap.redraw()` clears and redraws with current settings
+- `TownScene` listens to visual changes and calls redraw
+
+---
+
+## Performance Optimizations
+
+### High Zoom Caching
+
+At zoom levels above 300%, vector graphics are cached as bitmaps:
+- `MapController` monitors zoom level
+- Enables `cacheAsBitmap` on map children when zoom > 3.0x
+- Significantly improves panning performance at high zoom
+
+### Drag Anywhere
+
+MapController includes a transparent background sprite allowing drag from any point on screen, not just visible map elements.
+
+---
+
 ## Known Limitations
 
-- Water bodies and rivers are not generated (but can be imported)
+- Water bodies (lakes) are not generated (but can be imported)
 - Trees are not generated (but can be imported)
 - Named districts use ward type labels, not unique names
 - Source may lag behind live demo version

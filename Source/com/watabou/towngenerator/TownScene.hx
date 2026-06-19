@@ -17,9 +17,12 @@ import com.watabou.towngenerator.mapping.ImportedCityMap;
 import com.watabou.towngenerator.settings.GeneratorSettings;
 import com.watabou.towngenerator.ui.SettingsPanel;
 import com.watabou.towngenerator.ui.Tooltip;
+import com.watabou.towngenerator.ui.MapController;
+import com.watabou.towngenerator.ui.MapControls;
 import com.watabou.towngenerator.export.CityExporter;
 import com.watabou.towngenerator.importing.CityImporter;
 import com.watabou.towngenerator.importing.ImportedCity;
+import com.watabou.towngenerator.mapping.Palette;
 
 class TownScene extends Scene {
 
@@ -32,17 +35,27 @@ class TownScene extends Scene {
 	private var toggleButton:Sprite;
 	private var panelVisible:Bool = true;
 
+	// Map navigation
+	private var mapController:MapController;
+	private var mapControls:MapControls;
+
 	private static inline var PANEL_WIDTH:Float = 280;
 
 	public function new() {
 		super();
 
-		// City map
+		// City map wrapped in controller for zoom/pan
 		map = new CityMap(Model.instance);
-		addChild(map);
+		mapController = new MapController(map);
+		addChild(mapController);
 
 		// Tooltip for ward info
 		addChild(new Tooltip());
+
+		// Map controls (zoom buttons, slider)
+		var palette = GeneratorSettings.instance.palette;
+		mapControls = new MapControls(mapController, palette);
+		addChild(mapControls);
 
 		// Settings panel container
 		panelContainer = new Sprite();
@@ -61,6 +74,16 @@ class TownScene extends Scene {
 		// Toggle button
 		toggleButton = createToggleButton();
 		addChild(toggleButton);
+
+		// Listen for visual settings changes (palette, strokes) for real-time redraw
+		GeneratorSettings.instance.onVisualChange.add(onVisualSettingsChanged);
+	}
+
+	private function onVisualSettingsChanged():Void {
+		// Redraw map without regeneration for visual-only changes
+		if (!showingImported && map != null) {
+			map.redraw();
+		}
 	}
 
 	private function createToggleButton():Sprite {
@@ -96,20 +119,17 @@ class TownScene extends Scene {
 		// Create new model with current settings
 		new Model(settings.size, settings.seed);
 
-		// Clear imported city if showing one
-		if (showingImported && importedMap != null && contains(importedMap)) {
-			removeChild(importedMap);
+		// Clear imported city state
+		if (showingImported) {
 			importedMap = null;
 			importedCity = null;
 			showingImported = false;
 		}
 
 		// Recreate the map
-		if (map != null && contains(map)) {
-			removeChild(map);
-		}
 		map = new CityMap(Model.instance);
-		addChildAt(map, 0);
+		mapController.setTarget(map);
+		mapController.resetView();
 
 		layout();
 	}
@@ -162,17 +182,10 @@ class TownScene extends Scene {
 			return;
 		}
 
-		// Clear existing maps
-		if (map != null && contains(map)) {
-			removeChild(map);
-		}
-		if (importedMap != null && contains(importedMap)) {
-			removeChild(importedMap);
-		}
-
-		// Create imported city map
+		// Create imported city map and set as controller target
 		importedMap = new ImportedCityMap(importedCity);
-		addChildAt(importedMap, 0);
+		mapController.setTarget(importedMap);
+		mapController.resetView();
 		showingImported = true;
 
 		layout();
@@ -192,6 +205,9 @@ class TownScene extends Scene {
 		// Calculate available space for map
 		var mapAreaWidth = panelVisible ? rWidth - PANEL_WIDTH : rWidth;
 
+		// Tell controller the available area
+		mapController.setArea(mapAreaWidth, rHeight);
+
 		if (showingImported && importedMap != null) {
 			// Layout for imported city
 			var cityWidth = importedCity.getWidth();
@@ -203,25 +219,26 @@ class TownScene extends Scene {
 			var scaleY = rHeight / cityHeight * 0.9;
 			var sc = Math.min(scaleX, scaleY);
 
-			importedMap.scaleX = sc;
-			importedMap.scaleY = sc;
-
-			// Center the map
-			importedMap.x = mapAreaWidth / 2 - center.x * sc;
-			importedMap.y = rHeight / 2 - center.y * sc;
+			// Set initial transform for imported map
+			var initialX = mapAreaWidth / 2 - center.x * sc;
+			var initialY = rHeight / 2 - center.y * sc;
+			mapController.setInitialTransform(initialX, initialY, sc);
 		} else if (map != null) {
 			// Layout for generated city
-			// Center map in available space
-			map.x = mapAreaWidth / 2;
-			map.y = rHeight / 2;
-
 			// Scale map to fit
 			var scaleX = mapAreaWidth / Model.instance.cityRadius;
 			var scaleY = rHeight / Model.instance.cityRadius;
 			var scMin = Math.min(scaleX, scaleY);
 			var scMax = Math.max(scaleX, scaleY);
-			scale = (scMax / scMin > 2 ? scMax / 2 : scMin) * 0.5;
+			var sc = (scMax / scMin > 2 ? scMax / 2 : scMin) * 0.5;
+
+			// Set initial transform (centered in available space)
+			mapController.setInitialTransform(mapAreaWidth / 2, rHeight / 2, sc);
 		}
+
+		// Position map controls (bottom-left of map area)
+		mapControls.x = 12;
+		mapControls.y = rHeight - mapControls.height - 12;
 
 		// Position settings panel on the right
 		panelContainer.x = rWidth - PANEL_WIDTH;

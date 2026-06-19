@@ -24,6 +24,9 @@ class GeneratorSettings {
 	// Signal fired when any setting changes
 	public var onChange:Signal0 = new Signal0();
 
+	// Signal fired when visual settings change (palette, strokes) - no regeneration needed
+	public var onVisualChange:Signal0 = new Signal0();
+
 	// ===== GENERATION TAB =====
 
 	// City size (number of patches/wards)
@@ -38,6 +41,12 @@ class GeneratorSettings {
 	public var plazaMode(default, set):FeatureMode = Chance;
 	public var citadelMode(default, set):FeatureMode = Chance;
 	public var wallsMode(default, set):FeatureMode = Chance;
+
+	// Water features
+	public var riverMode(default, set):FeatureMode = Never;
+	public var riverWidth(default, set):Float = 4.0;
+	public static inline var RIVER_WIDTH_MIN = 2.0;
+	public static inline var RIVER_WIDTH_MAX = 10.0;
 
 	// ===== WARDS TAB =====
 
@@ -207,6 +216,18 @@ class GeneratorSettings {
 		return wallsMode;
 	}
 
+	function set_riverMode(v:FeatureMode):FeatureMode {
+		if (riverMode != v) { riverMode = v; onChange.dispatch(); }
+		return riverMode;
+	}
+
+	function set_riverWidth(v:Float):Float {
+		if (v < RIVER_WIDTH_MIN) v = RIVER_WIDTH_MIN;
+		if (v > RIVER_WIDTH_MAX) v = RIVER_WIDTH_MAX;
+		if (riverWidth != v) { riverWidth = v; onChange.dispatch(); }
+		return riverWidth;
+	}
+
 	function set_wardPreset(v:String):String {
 		wardPreset = v;
 		return wardPreset;
@@ -257,7 +278,11 @@ class GeneratorSettings {
 	}
 
 	function set_palette(v:Palette):Palette {
-		if (palette != v) { palette = v; onChange.dispatch(); }
+		if (palette != v) {
+			palette = v;
+			onChange.dispatch();
+			onVisualChange.dispatch();
+		}
 		return palette;
 	}
 
@@ -267,17 +292,29 @@ class GeneratorSettings {
 	}
 
 	function set_normalStroke(v:Float):Float {
-		if (normalStroke != v) { normalStroke = v; onChange.dispatch(); }
+		if (normalStroke != v) {
+			normalStroke = v;
+			onChange.dispatch();
+			onVisualChange.dispatch();
+		}
 		return normalStroke;
 	}
 
 	function set_thickStroke(v:Float):Float {
-		if (thickStroke != v) { thickStroke = v; onChange.dispatch(); }
+		if (thickStroke != v) {
+			thickStroke = v;
+			onChange.dispatch();
+			onVisualChange.dispatch();
+		}
 		return thickStroke;
 	}
 
 	function set_thinStroke(v:Float):Float {
-		if (thinStroke != v) { thinStroke = v; onChange.dispatch(); }
+		if (thinStroke != v) {
+			thinStroke = v;
+			onChange.dispatch();
+			onVisualChange.dispatch();
+		}
 		return thinStroke;
 	}
 

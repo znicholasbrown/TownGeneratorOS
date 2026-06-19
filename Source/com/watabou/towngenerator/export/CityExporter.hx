@@ -76,11 +76,20 @@ class CityExporter {
 			geometries: wallGeometries
 		});
 
-		// 5. rivers - empty for now (not generated)
+		// 5. rivers
+		var riverGeometries:Array<Dynamic> = [];
+		if (model.river != null) {
+			// Export river as a LineString (the path) with width
+			riverGeometries.push({
+				type: "LineString",
+				coordinates: polygonToCoords(model.river.path),
+				width: model.river.width * SCALE
+			});
+		}
 		features.push({
 			type: "GeometryCollection",
 			id: "rivers",
-			geometries: []
+			geometries: riverGeometries
 		});
 
 		// 6. planks (bridges) - empty for now (not generated)
@@ -178,8 +187,13 @@ class CityExporter {
 			geometries: districtGeometries
 		});
 
-		// 14. water - empty for now (waterbody not populated)
+		// 14. water - includes river polygon and any water patches
 		var waterCoords:Array<Dynamic> = [];
+		// Add river polygon as water body
+		if (model.river != null) {
+			waterCoords.push(polygonToMultiCoords(model.river.polygon));
+		}
+		// Add any water patches
 		if (model.waterbody != null) {
 			for (patch in model.waterbody) {
 				waterCoords.push(polygonToMultiCoords(patch.shape));

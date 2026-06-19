@@ -25,62 +25,126 @@ class CityMap extends Sprite {
 		return GeneratorSettings.instance.palette;
 	}
 
-	private var patches	: Array<PatchView>;
+	// Store model reference for redraw
+	private var model:Model;
 
-	private var brush	: Brush;
+	private var patches:Array<PatchView>;
+	private var roadShapes:Array<Shape>;
+	private var wallShape:Shape;
+	private var riverShape:Shape;
 
-	public function new( model:Model ) {
+	private var brush:Brush;
+
+	public function new(model:Model) {
 		super();
+		this.model = model;
+		build();
+	}
 
-		brush = new Brush( palette );
+	// Build/rebuild all visual elements
+	private function build():Void {
+		// Clear existing children
+		while (numChildren > 0) {
+			removeChildAt(0);
+		}
 
-		var model = Model.instance;
+		brush = new Brush(palette);
 
+		// Draw river first (bottom layer)
+		riverShape = new Shape();
+		if (model.river != null) {
+			drawRiver(riverShape.graphics);
+		}
+		addChild(riverShape);
+
+		// Draw roads
+		roadShapes = [];
 		for (road in model.roads) {
 			var roadView = new Shape();
-			drawRoad( roadView.graphics, road );
-			addChild( roadView );
+			drawRoad(roadView.graphics, road);
+			roadShapes.push(roadView);
+			addChild(roadView);
 		}
 
+		// Draw patches
 		patches = [];
 		for (patch in model.patches) {
-			var patchView = new PatchView( patch );
-			var patchDrawn = true;
-
-			var g = patchView.graphics;
-			switch (Type.getClass( patch.ward )) {
-				case Castle:
-					drawBuilding( g, patch.ward.geometry, palette.light, palette.dark, Brush.NORMAL_STROKE * 2 );
-				case Cathedral:
-					drawBuilding( g, patch.ward.geometry, palette.light, palette.dark, Brush.NORMAL_STROKE );
-				case Market, CraftsmenWard, MerchantWard, GateWard, Slum, AdministrationWard, MilitaryWard, PatriciateWard, Farm:
-					brush.setColor( g, palette.light, palette.dark );
-					for (building in patch.ward.geometry)
-						g.drawPolygon( building );
-				case Park:
-					brush.setColor( g, palette.medium );
-					for (grove in patch.ward.geometry)
-						g.drawPolygon( grove );
-				default:
-					patchDrawn = false;
-			}
-
-			patches.push( patchView );
-			if (patchDrawn)
-				addChild( patchView );
+			var patchView = new PatchView(patch);
+			drawPatch(patchView);
+			patches.push(patchView);
 		}
 
+		// Add hot areas on top
 		for (patch in patches)
-			addChild( patch.hotArea );
+			addChild(patch.hotArea);
 
-		var walls = new Shape();
-		addChild( walls );
+		// Draw walls on top
+		wallShape = new Shape();
+		addChild(wallShape);
 
 		if (model.wall != null)
-			drawWall( walls.graphics, model.wall, false );
+			drawWall(wallShape.graphics, model.wall, false);
 
 		if (model.citadel != null)
-			drawWall( walls.graphics, cast( model.citadel.ward, Castle).wall, true );
+			drawWall(wallShape.graphics, cast(model.citadel.ward, Castle).wall, true);
+	}
+
+	// Draw a single patch
+	private function drawPatch(patchView:PatchView):Void {
+		var patch = patchView.patch;
+		var patchDrawn = true;
+		var g = patchView.graphics;
+
+		g.clear();
+
+		switch (Type.getClass(patch.ward)) {
+			case Castle:
+				drawBuilding(g, patch.ward.geometry, palette.light, palette.dark, Brush.NORMAL_STROKE * 2);
+			case Cathedral:
+				drawBuilding(g, patch.ward.geometry, palette.light, palette.dark, Brush.NORMAL_STROKE);
+			case Market, CraftsmenWard, MerchantWard, GateWard, Slum, AdministrationWard, MilitaryWard, PatriciateWard, Farm:
+				brush.setColor(g, palette.light, palette.dark);
+				for (building in patch.ward.geometry)
+					g.drawPolygon(building);
+			case Park:
+				brush.setColor(g, palette.medium);
+				for (grove in patch.ward.geometry)
+					g.drawPolygon(grove);
+			default:
+				patchDrawn = false;
+		}
+
+		if (patchDrawn && !contains(patchView))
+			addChild(patchView);
+	}
+
+	// Redraw all elements with current palette/settings (no regeneration)
+	public function redraw():Void {
+		brush = new Brush(palette);
+
+		// Redraw river
+		riverShape.graphics.clear();
+		if (model.river != null) {
+			drawRiver(riverShape.graphics);
+		}
+
+		// Redraw roads
+		for (i in 0...roadShapes.length) {
+			roadShapes[i].graphics.clear();
+			drawRoad(roadShapes[i].graphics, model.roads[i]);
+		}
+
+		// Redraw patches
+		for (patchView in patches) {
+			drawPatch(patchView);
+		}
+
+		// Redraw walls
+		wallShape.graphics.clear();
+		if (model.wall != null)
+			drawWall(wallShape.graphics, model.wall, false);
+		if (model.citadel != null)
+			drawWall(wallShape.graphics, cast(model.citadel.ward, Castle).wall, true);
 	}
 
 	private function drawRoad( g:Graphics, road:Street ):Void {
@@ -129,5 +193,18 @@ class CityMap extends Sprite {
 		for (block in blocks) {
 			g.drawPolygon( block );
 		}
+	}
+
+	private function drawRiver(g:Graphics):Void {
+		if (model.river == null) return;
+
+		// Draw river fill
+		g.beginFill(palette.water);
+		g.drawPolygon(model.river.polygon);
+		g.endFill();
+
+		// Draw subtle outline
+		g.lineStyle(Brush.THIN_STROKE, palette.medium, 0.5);
+		g.drawPolygon(model.river.polygon);
 	}
 }

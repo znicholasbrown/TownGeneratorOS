@@ -13,6 +13,7 @@ import com.watabou.utils.Random;
 import com.watabou.towngenerator.wards.*;
 import com.watabou.towngenerator.settings.GeneratorSettings;
 import com.watabou.towngenerator.settings.FeatureMode;
+import com.watabou.towngenerator.building.RiverGenerator;
 
 using com.watabou.utils.PointExtender;
 using com.watabou.utils.ArrayExtender;
@@ -33,6 +34,7 @@ class Model {
 	private var plazaNeeded		: Bool;
 	private var citadelNeeded	: Bool;
 	private var wallsNeeded		: Bool;
+	private var riverNeeded		: Bool;
 
 	public static var WARDS:Array<Class<Ward>> = [
 		CraftsmenWard, CraftsmenWard, MerchantWard, CraftsmenWard, CraftsmenWard, Cathedral,
@@ -68,6 +70,9 @@ class Model {
 	public var streets	: Array<Street>;
 	public var roads	: Array<Street>;
 
+	// River data
+	public var river	: RiverData;
+
 	public function new( nPatches=-1, seed=-1 ) {
 		var settings = GeneratorSettings.instance;
 
@@ -92,6 +97,11 @@ class Model {
 			case FeatureMode.Never: false;
 			case FeatureMode.Chance: Random.bool();
 		};
+		riverNeeded = switch(settings.riverMode) {
+			case FeatureMode.Always: true;
+			case FeatureMode.Never: false;
+			case FeatureMode.Chance: Random.bool();
+		};
 
 		do try {
 			build();
@@ -105,13 +115,31 @@ class Model {
 	private function build():Void {
 		streets = [];
 		roads = [];
+		river = null;
 
 		buildPatches();
 		optimizeJunctions();
+		buildRiver();
 		buildWalls();
 		buildStreets();
 		createWards();
 		buildGeometry();
+	}
+
+	private function buildRiver():Void {
+		if (!riverNeeded) return;
+
+		// Calculate radius from inner patches (cityRadius isn't set yet)
+		var radius:Float = 0;
+		for (patch in inner) {
+			for (v in patch.shape) {
+				var dist = Math.sqrt(v.x * v.x + v.y * v.y);
+				if (dist > radius) radius = dist;
+			}
+		}
+
+		// Generate river through the city
+		river = RiverGenerator.generate(radius, center);
 	}
 
 	private function buildPatches():Void {
