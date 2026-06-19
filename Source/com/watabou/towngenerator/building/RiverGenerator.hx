@@ -8,552 +8,262 @@ import com.watabou.towngenerator.settings.GeneratorSettings;
 using com.watabou.utils.PointExtender;
 using com.watabou.utils.ArrayExtender;
 
+/**
+ * River generator that walks along actual Voronoi edges.
+ *
+ * Algorithm:
+ * 1. Build a graph of all Voronoi vertex connections from patch edges
+ * 2. Identify boundary vertices (on the edge of the map)
+ * 3. Start from a random boundary vertex
+ * 4. Walk the graph by choosing connected vertices
+ * 5. Stop when reaching another boundary vertex
+ */
 class RiverGenerator {
 
-	// Generate a river following Voronoi edges (patch boundaries)
+	// Generate a river by walking the Voronoi edge graph
 	public static function generate(model:Model):RiverData {
 		var settings = GeneratorSettings.instance;
 		var riverWidth = settings.riverWidth;
 
-		// Get boundary patches (not fully enclosed)
-		var boundary = model.getBoundaryPatches();
-		if (boundary.length < 2) return null;
+		// Build edge graph from all patches
+		var edgeGraph = buildEdgeGraph(model);
+		if (edgeGraph.vertices.length < 3) return null;
 
-		// Select entry and exit patches on roughly opposite sides
-		var entryPatch = selectEntryPatch(boundary, model.center);
-		if (entryPatch == null) return null;
+		// Find boundary vertices (vertices on the edge of the map)
+		var boundaryVerts = findBoundaryVertices(model, edgeGraph);
+		if (boundaryVerts.length < 2) return null;
 
-		var exitPatch = selectExitPatch(boundary, entryPatch, model.center);
-		if (exitPatch == null) return null;
+		// Pick a random starting boundary vertex
+		var startIdx = Random.int(0, boundaryVerts.length);
+		var startVert = boundaryVerts[startIdx];
 
-		// Find path through patches using A*
-		var patchPath = findPatchPath(model, entryPatch, exitPatch);
-		if (patchPath.length < 2) return null;
-
-		// Extract the Voronoi edge path from the patch sequence
-		var edgePath = extractEdgePath(model, patchPath);
-		if (edgePath.length < 2) return null;
-
-		// Clean the path to remove backtracking before storing
-		var cleanedPath = pathBacktracking(edgePath);
-		if (cleanedPath.length < 2) return null;
-
-		// Create river polygon with width (uses cleaned path internally)
-		var riverPolygon = createRiverPolygon(cleanedPath, riverWidth);
+		// Walk the graph to find a path to another boundary vertex
+		var path = walkEdgeGraph(edgeGraph, startVert, boundaryVerts, model.center);
+		if (path.length < 2) return null;
 
 		return {
-			path: cleanedPath,  // Store cleaned path for debug visualization
-			polygon: riverPolygon,
+			path: path,
+			polygon: new Polygon(),  // Not used anymore - we use stroke rendering
 			width: riverWidth
 		};
 	}
 
-	// Select an entry patch from boundary patches
-	private static function selectEntryPatch(boundary:Array<Patch>, center:Point):Patch {
-		if (boundary.length == 0) return null;
+	// Build a graph of vertex connections from all Voronoi edges
+	private static function buildEdgeGraph(model:Model):EdgeGraph {
+		var graph = new EdgeGraph();
 
-		// Pick a random angle for entry
-		var entryAngle = Random.float() * Math.PI * 2;
-		var entryDir = new Point(Math.cos(entryAngle), Math.sin(entryAngle));
+		// Iterate over all patches and extract edges
+		for (patch in model.patches) {
+			var shape = patch.shape;
+			var n = shape.length;
 
-		// Find the boundary patch closest to that direction
-		var best:Patch = null;
+			for (i in 0...n) {
+				var a = shape[i];
+				var b = shape[(i + 1) % n];
+
+				// Add vertices to graph
+				var idxA = graph.addVertex(a);
+				var idxB = graph.addVertex(b);
+
+				// Add edge (bidirectional)
+				graph.addEdge(idxA, idxB);
+			}
+		}
+
+		return graph;
+	}
+
+	// Find vertices that lie on the boundary of the map (outer edges)
+	private static function findBoundaryVertices(model:Model, graph:EdgeGraph):Array<Int> {
+		var boundary:Array<Int> = [];
+
+		// A vertex is on the boundary if it has fewer connections
+		// OR if it lies on a patch that touches the outer boundary
+		// We'll use a simpler heuristic: vertices that are far from center
+		// and have degree <= 3 (typical for boundary vertices)
+
+		// First, find the bounding box of all vertices
+		var minX = Math.POSITIVE_INFINITY;
+		var maxX = Math.NEGATIVE_INFINITY;
+		var minY = Math.POSITIVE_INFINITY;
+		var maxY = Math.NEGATIVE_INFINITY;
+
+		for (v in graph.vertices) {
+			minX = Math.min(minX, v.x);
+			maxX = Math.max(maxX, v.x);
+			minY = Math.min(minY, v.y);
+			maxY = Math.max(maxY, v.y);
+		}
+
+		// Add some margin
+		var marginX = (maxX - minX) * 0.05;
+		var marginY = (maxY - minY) * 0.05;
+
+		// Vertices near the edge of the bounding box are boundary vertices
+		for (i in 0...graph.vertices.length) {
+			var v = graph.vertices[i];
+			if (v.x < minX + marginX || v.x > maxX - marginX ||
+				v.y < minY + marginY || v.y > maxY - marginY) {
+				boundary.push(i);
+			}
+		}
+
+		return boundary;
+	}
+
+	// Walk the edge graph from start vertex to a different boundary vertex
+	private static function walkEdgeGraph(graph:EdgeGraph, startIdx:Int, boundaryVerts:Array<Int>, center:Point):Polygon {
+		var path = new Polygon();
+		var visited = new Map<Int, Bool>();
+
+		var currentIdx = startIdx;
+		path.push(graph.vertices[currentIdx]);
+		visited.set(currentIdx, true);
+
+		// Direction preference: start by heading toward center, then maintain momentum
+		var startVert = graph.vertices[startIdx];
+		var currentDir = new Point(center.x - startVert.x, center.y - startVert.y);
+		normalizePoint(currentDir);
+
+		var maxSteps = graph.vertices.length * 2; // Safety limit
+		var steps = 0;
+
+		while (steps < maxSteps) {
+			steps++;
+
+			// Get neighbors of current vertex
+			var neighbors = graph.getNeighbors(currentIdx);
+			if (neighbors.length == 0) break;
+
+			// Find unvisited neighbors
+			var unvisited:Array<Int> = [];
+			for (n in neighbors) {
+				if (!visited.exists(n)) {
+					unvisited.push(n);
+				}
+			}
+
+			if (unvisited.length == 0) break;
+
+			// Choose next vertex based on direction preference
+			var nextIdx = chooseNextVertex(graph, currentIdx, unvisited, currentDir);
+
+			// Check if we've reached another boundary vertex (and not the start)
+			if (path.length >= 3 && boundaryVerts.contains(nextIdx) && nextIdx != startIdx) {
+				path.push(graph.vertices[nextIdx]);
+				break;
+			}
+
+			// Update direction for momentum
+			var currVert = graph.vertices[currentIdx];
+			var nextVert = graph.vertices[nextIdx];
+			currentDir = new Point(nextVert.x - currVert.x, nextVert.y - currVert.y);
+			normalizePoint(currentDir);
+
+			// Move to next vertex
+			path.push(nextVert);
+			visited.set(nextIdx, true);
+			currentIdx = nextIdx;
+		}
+
+		return path;
+	}
+
+	// Choose the next vertex based on direction preference
+	// Prefers continuing in roughly the same direction (momentum)
+	private static function chooseNextVertex(graph:EdgeGraph, currentIdx:Int, candidates:Array<Int>, preferredDir:Point):Int {
+		if (candidates.length == 1) return candidates[0];
+
+		var currVert = graph.vertices[currentIdx];
+		var bestIdx = candidates[0];
 		var bestScore = Math.NEGATIVE_INFINITY;
 
-		for (patch in boundary) {
-			var patchCenter = patch.shape.centroid;
-			var toCenter = patchCenter.subtract(center);
-			// Dot product to find patch most aligned with entry direction
-			var score = toCenter.x * entryDir.x + toCenter.y * entryDir.y;
+		for (candIdx in candidates) {
+			var candVert = graph.vertices[candIdx];
+			var dir = new Point(candVert.x - currVert.x, candVert.y - currVert.y);
+			normalizePoint(dir);
+
+			// Score based on alignment with preferred direction
+			// Higher score = more aligned with current direction
+			var dot = dir.x * preferredDir.x + dir.y * preferredDir.y;
+
+			// Add some randomness to make rivers more natural
+			var randomFactor = Random.float() * 0.5 - 0.25;
+			var score = dot + randomFactor;
+
 			if (score > bestScore) {
 				bestScore = score;
-				best = patch;
+				bestIdx = candIdx;
 			}
 		}
 
-		return best;
+		return bestIdx;
 	}
 
-	// Select an exit patch roughly opposite to entry
-	private static function selectExitPatch(boundary:Array<Patch>, entryPatch:Patch, center:Point):Patch {
-		if (boundary.length < 2) return null;
+	private static function normalizePoint(p:Point):Void {
+		var len = Math.sqrt(p.x * p.x + p.y * p.y);
+		if (len > 0.001) {
+			p.x /= len;
+			p.y /= len;
+		}
+	}
+}
 
-		var entryCenter = entryPatch.shape.centroid;
-		var entryDir = entryCenter.subtract(center);
-		entryDir.normalize(1);
+// Graph structure for Voronoi edges
+class EdgeGraph {
+	public var vertices:Array<Point>;
+	public var edges:Map<Int, Array<Int>>;  // Adjacency list
 
-		// Look for patch roughly opposite (negative dot product)
-		var best:Patch = null;
-		var bestScore = Math.POSITIVE_INFINITY;
+	private static inline var EPSILON:Float = 0.5;
 
-		for (patch in boundary) {
-			if (patch == entryPatch) continue;
+	public function new() {
+		vertices = [];
+		edges = new Map<Int, Array<Int>>();
+	}
 
-			var patchCenter = patch.shape.centroid;
-			var toCenter = patchCenter.subtract(center);
-			toCenter.normalize(1);
-
-			// Dot product - more negative = more opposite
-			var score = toCenter.x * entryDir.x + toCenter.y * entryDir.y;
-
-			// Also factor in distance from entry (prefer farther patches)
-			var dist = Point.distance(patchCenter, entryCenter);
-
-			// Combined score: prefer opposite direction and far distance
-			var combinedScore = score - dist * 0.01;
-
-			if (combinedScore < bestScore) {
-				bestScore = combinedScore;
-				best = patch;
+	// Add a vertex, return its index (reuse existing if close enough)
+	public function addVertex(p:Point):Int {
+		// Check if vertex already exists (within epsilon)
+		for (i in 0...vertices.length) {
+			if (Point.distance(vertices[i], p) < EPSILON) {
+				return i;
 			}
 		}
-
-		return best;
+		// Add new vertex
+		vertices.push(p);
+		return vertices.length - 1;
 	}
 
-	// A* pathfinding on patch adjacency graph
-	private static function findPatchPath(model:Model, start:Patch, end:Patch):Array<Patch> {
-		// Build neighbor lookup
-		var neighbors = new Map<Int, Array<Patch>>();
-		var patchIndex = new Map<Int, Patch>();
+	// Add an edge between two vertices (bidirectional)
+	public function addEdge(a:Int, b:Int):Void {
+		if (a == b) return;
 
-		for (i in 0...model.patches.length) {
-			var patch = model.patches[i];
-			patchIndex.set(i, patch);
-			neighbors.set(i, model.getNeighbours(patch));
+		if (!edges.exists(a)) {
+			edges.set(a, []);
+		}
+		if (!edges.get(a).contains(b)) {
+			edges.get(a).push(b);
 		}
 
-		// Find indices
-		var startIdx = model.patches.indexOf(start);
-		var endIdx = model.patches.indexOf(end);
-		if (startIdx == -1 || endIdx == -1) return [];
-
-		// A* data structures
-		var openSet = [startIdx];
-		var cameFrom = new Map<Int, Int>();
-		var gScore = new Map<Int, Float>();
-		var fScore = new Map<Int, Float>();
-
-		gScore.set(startIdx, 0);
-		fScore.set(startIdx, heuristic(start, end));
-
-		while (openSet.length > 0) {
-			// Find node in openSet with lowest fScore
-			var current = openSet[0];
-			var currentF = fScore.exists(current) ? fScore.get(current) : Math.POSITIVE_INFINITY;
-			for (idx in openSet) {
-				var f = fScore.exists(idx) ? fScore.get(idx) : Math.POSITIVE_INFINITY;
-				if (f < currentF) {
-					current = idx;
-					currentF = f;
-				}
-			}
-
-			if (current == endIdx) {
-				return reconstructPath(model.patches, cameFrom, current);
-			}
-
-			openSet.remove(current);
-
-			var currentPatch = model.patches[current];
-			var neighborPatches = neighbors.get(current);
-			if (neighborPatches == null) continue;
-
-			for (neighbor in neighborPatches) {
-				var neighborIdx = model.patches.indexOf(neighbor);
-				if (neighborIdx == -1) continue;
-
-				var edgeLen = model.getSharedEdgeLength(currentPatch, neighbor);
-				var tentativeG = (gScore.exists(current) ? gScore.get(current) : Math.POSITIVE_INFINITY) + edgeLen;
-
-				var neighborG = gScore.exists(neighborIdx) ? gScore.get(neighborIdx) : Math.POSITIVE_INFINITY;
-
-				if (tentativeG < neighborG) {
-					cameFrom.set(neighborIdx, current);
-					gScore.set(neighborIdx, tentativeG);
-					fScore.set(neighborIdx, tentativeG + heuristic(neighbor, end));
-
-					if (!openSet.contains(neighborIdx)) {
-						openSet.push(neighborIdx);
-					}
-				}
-			}
+		if (!edges.exists(b)) {
+			edges.set(b, []);
 		}
-
-		return []; // No path found
-	}
-
-	private static function heuristic(a:Patch, b:Patch):Float {
-		return Point.distance(a.shape.centroid, b.shape.centroid);
-	}
-
-	private static function reconstructPath(patches:Array<Patch>, cameFrom:Map<Int, Int>, current:Int):Array<Patch> {
-		var path = [patches[current]];
-		while (cameFrom.exists(current)) {
-			current = cameFrom.get(current);
-			path.unshift(patches[current]);
-		}
-		return path;
-	}
-
-	// Extract continuous edge path from patch sequence
-	// The river follows the boundaries BETWEEN patches
-	private static function extractEdgePath(model:Model, patchPath:Array<Patch>):Polygon {
-		var path = new Polygon();
-
-		if (patchPath.length < 2) return path;
-
-		// Build path by following shared boundaries between consecutive patches
-		// Key insight: use a consistent reference patch (the second one) for all vertex lookups
-		// This ensures we're always working with the same Point objects
-
-		for (i in 0...patchPath.length - 1) {
-			var p1 = patchPath[i];
-			var p2 = patchPath[i + 1];
-
-			// Get shared vertices by finding vertices of p2 that are also in p1
-			// We extract from p2 to maintain consistent references
-			var sharedVerts = getSharedVerticesOrdered(p1, p2);
-
-			if (sharedVerts.length == 0) continue;
-
-			if (path.length == 0) {
-				// First segment - add all shared vertices
-				for (v in sharedVerts) {
-					path.push(v);
-				}
-			} else {
-				// Connect to existing path
-				var lastPoint = path[path.length - 1];
-
-				// Check if we need to reverse the shared vertices
-				var distToFirst = Point.distance(lastPoint, sharedVerts[0]);
-				var distToLast = Point.distance(lastPoint, sharedVerts[sharedVerts.length - 1]);
-
-				// If the endpoints are very close (same point), just add in order
-				// Otherwise, add in the direction that connects properly
-				if (distToFirst < 0.01) {
-					// Already connected at first vertex - add remaining
-					for (j in 1...sharedVerts.length) {
-						path.push(sharedVerts[j]);
-					}
-				} else if (distToLast < 0.01) {
-					// Connected at last vertex - add in reverse, skip last
-					var j = sharedVerts.length - 2;
-					while (j >= 0) {
-						path.push(sharedVerts[j]);
-						j--;
-					}
-				} else {
-					// Not directly connected - need to traverse p1's boundary
-					// Find the connection point on p1
-					var connectPath = findConnectionPath(p1.shape, lastPoint, sharedVerts[0], sharedVerts[sharedVerts.length - 1]);
-
-					// Add connection path (skip first as it's already in path)
-					for (j in 1...connectPath.path.length) {
-						path.push(connectPath.path[j]);
-					}
-
-					// Add shared vertices in correct direction
-					if (connectPath.connectsToFirst) {
-						for (v in sharedVerts) {
-							if (!pointNear(path[path.length - 1], v)) {
-								path.push(v);
-							}
-						}
-					} else {
-						var j = sharedVerts.length - 1;
-						while (j >= 0) {
-							if (!pointNear(path[path.length - 1], sharedVerts[j])) {
-								path.push(sharedVerts[j]);
-							}
-							j--;
-						}
-					}
-				}
-			}
-		}
-
-		return path;
-	}
-
-	// Get shared vertices between two patches, ordered as they appear in p2's shape
-	private static function getSharedVerticesOrdered(p1:Patch, p2:Patch):Array<Point> {
-		var shared:Array<Point> = [];
-		var epsilon = 0.01;
-
-		// Find vertices of p2 that are also in p1
-		for (v2 in p2.shape) {
-			for (v1 in p1.shape) {
-				if (Point.distance(v1, v2) < epsilon) {
-					shared.push(v2);  // Use p2's reference
-					break;
-				}
-			}
-		}
-
-		if (shared.length < 2) return shared;
-
-		// The shared vertices should be contiguous in p2's shape
-		// Find the starting index and extract in order
-		var startIdx = -1;
-		for (i in 0...p2.shape.length) {
-			if (isInArray(shared, p2.shape[i])) {
-				startIdx = i;
-				break;
-			}
-		}
-
-		if (startIdx == -1) return shared;
-
-		// Extract contiguous shared vertices starting from startIdx
-		var ordered:Array<Point> = [];
-		var n = p2.shape.length;
-		var idx = startIdx;
-		var count = 0;
-
-		while (count < n) {
-			var v = p2.shape[idx];
-			if (isInArray(shared, v)) {
-				ordered.push(v);
-			} else if (ordered.length > 0) {
-				// Hit a non-shared vertex after finding shared ones - stop
-				break;
-			}
-			idx = (idx + 1) % n;
-			count++;
-		}
-
-		return ordered;
-	}
-
-	private static function isInArray(arr:Array<Point>, p:Point):Bool {
-		var epsilon = 0.01;
-		for (v in arr) {
-			if (Point.distance(v, p) < epsilon) return true;
-		}
-		return false;
-	}
-
-	private static function pointNear(a:Point, b:Point):Bool {
-		return Point.distance(a, b) < 0.01;
-	}
-
-	// Find path along polygon boundary from 'from' to either 'to1' or 'to2', whichever is shorter
-	private static function findConnectionPath(shape:Polygon, from:Point, to1:Point, to2:Point):{path:Array<Point>, connectsToFirst:Bool} {
-		var path1 = getPathAlongBoundary(shape, from, to1);
-		var path2 = getPathAlongBoundary(shape, from, to2);
-
-		if (path1.length == 0 && path2.length == 0) {
-			// Fallback - just use from point
-			return {path: [from], connectsToFirst: Point.distance(from, to1) < Point.distance(from, to2)};
-		} else if (path1.length == 0) {
-			return {path: path2, connectsToFirst: false};
-		} else if (path2.length == 0) {
-			return {path: path1, connectsToFirst: true};
-		} else if (path1.length <= path2.length) {
-			return {path: path1, connectsToFirst: true};
-		} else {
-			return {path: path2, connectsToFirst: false};
+		if (!edges.get(b).contains(a)) {
+			edges.get(b).push(a);
 		}
 	}
 
-	// Get the path along a polygon boundary from point a to point b (shortest direction)
-	private static function getPathAlongBoundary(shape:Polygon, a:Point, b:Point):Array<Point> {
-		// Find indices of a and b in the polygon
-		// First try reference equality, then fall back to geometric proximity
-		var idxA = findPointInPolygon(shape, a);
-		var idxB = findPointInPolygon(shape, b);
-
-		if (idxA == -1 || idxB == -1) {
-			// Points not found, return empty path (will skip connection)
-			return [];
+	// Get neighbors of a vertex
+	public function getNeighbors(idx:Int):Array<Int> {
+		if (edges.exists(idx)) {
+			return edges.get(idx);
 		}
-
-		if (idxA == idxB) {
-			// Same point, no path needed
-			return [shape[idxA]];
-		}
-
-		var n = shape.length;
-
-		// Forward path (idxA to idxB going forward)
-		var forward:Array<Point> = [];
-		var idx = idxA;
-		while (true) {
-			forward.push(shape[idx]);
-			if (idx == idxB) break;
-			idx = (idx + 1) % n;
-			if (forward.length > n) break; // Safety
-		}
-
-		// Backward path (idxA to idxB going backward)
-		var backward:Array<Point> = [];
-		idx = idxA;
-		while (true) {
-			backward.push(shape[idx]);
-			if (idx == idxB) break;
-			idx = (idx - 1 + n) % n;
-			if (backward.length > n) break; // Safety
-		}
-
-		// Return shorter path
-		return forward.length <= backward.length ? forward : backward;
-	}
-
-	// Find a point in a polygon, trying reference equality first, then geometric proximity
-	private static function findPointInPolygon(shape:Polygon, target:Point):Int {
-		// First try reference equality
-		for (i in 0...shape.length) {
-			if (shape[i] == target) return i;
-		}
-
-		// Fall back to geometric proximity (within small epsilon)
-		var epsilon = 0.001;
-		for (i in 0...shape.length) {
-			if (Point.distance(shape[i], target) < epsilon) return i;
-		}
-
-		return -1;
-	}
-
-	// Check if polygon contains a point (by reference or proximity)
-	private static function hasPoint(poly:Polygon, p:Point):Bool {
-		var epsilon = 0.001;
-		for (v in poly) {
-			if (v == p || Point.distance(v, p) < epsilon) return true;
-		}
-		return false;
-	}
-
-	// Create river polygon from center path with width
-	// Uses proper miter joins at corners to avoid self-intersection
-	// Expects path to already be cleaned (no backtracking)
-	private static function createRiverPolygon(path:Polygon, width:Float):Polygon {
-		var polygon = new Polygon();
-		var halfWidth = width / 2;
-
-		if (path.length < 2) return polygon;
-
-		// Calculate offset points for left side
-		var leftPoints:Array<Point> = [];
-		var rightPoints:Array<Point> = [];
-
-		for (i in 0...path.length) {
-			var curr = path[i];
-
-			// Get incoming and outgoing edge directions
-			var inDir:Point = null;
-			var outDir:Point = null;
-
-			if (i > 0) {
-				var prev = path[i - 1];
-				inDir = new Point(curr.x - prev.x, curr.y - prev.y);
-				var inLen = Math.sqrt(inDir.x * inDir.x + inDir.y * inDir.y);
-				if (inLen > 0) { inDir.x /= inLen; inDir.y /= inLen; }
-			}
-
-			if (i < path.length - 1) {
-				var next = path[i + 1];
-				outDir = new Point(next.x - curr.x, next.y - curr.y);
-				var outLen = Math.sqrt(outDir.x * outDir.x + outDir.y * outDir.y);
-				if (outLen > 0) { outDir.x /= outLen; outDir.y /= outLen; }
-			}
-
-			// Calculate the offset direction (perpendicular to bisector)
-			var offsetDir:Point;
-			if (inDir == null) {
-				// First point - use outgoing perpendicular
-				offsetDir = new Point(-outDir.y, outDir.x);
-			} else if (outDir == null) {
-				// Last point - use incoming perpendicular
-				offsetDir = new Point(-inDir.y, inDir.x);
-			} else {
-				// Middle point - use miter join
-				// The miter direction bisects the angle between -inDir and outDir
-				var bisector = new Point(outDir.x - inDir.x, outDir.y - inDir.y);
-				var bisLen = Math.sqrt(bisector.x * bisector.x + bisector.y * bisector.y);
-
-				if (bisLen < 0.001) {
-					// Straight line - just use perpendicular
-					offsetDir = new Point(-inDir.y, inDir.x);
-				} else {
-					bisector.x /= bisLen;
-					bisector.y /= bisLen;
-
-					// The perpendicular to the bisector gives us the miter direction
-					offsetDir = new Point(-bisector.y, bisector.x);
-
-					// Calculate miter length adjustment
-					// miterLength = 1 / sin(angle/2)
-					var dot = inDir.x * outDir.x + inDir.y * outDir.y;
-					var cross = inDir.x * outDir.y - inDir.y * outDir.x;
-
-					// Check if we need to flip the offset direction
-					if (cross < 0) {
-						offsetDir.x = -offsetDir.x;
-						offsetDir.y = -offsetDir.y;
-					}
-
-					// Limit miter to prevent spikes at sharp angles
-					var sinHalfAngle = Math.sqrt((1 - dot) / 2);
-					if (sinHalfAngle > 0.1) {
-						var miterScale = 1 / sinHalfAngle;
-						// Cap miter length to 2x normal width
-						miterScale = Math.min(miterScale, 2.0);
-						offsetDir.x *= miterScale;
-						offsetDir.y *= miterScale;
-					}
-				}
-			}
-
-			leftPoints.push(new Point(curr.x + offsetDir.x * halfWidth, curr.y + offsetDir.y * halfWidth));
-			rightPoints.push(new Point(curr.x - offsetDir.x * halfWidth, curr.y - offsetDir.y * halfWidth));
-		}
-
-		// Build polygon: left side forward, then right side backward
-		for (p in leftPoints) {
-			polygon.push(p);
-		}
-
-		var i = rightPoints.length - 1;
-		while (i >= 0) {
-			polygon.push(rightPoints[i]);
-			i--;
-		}
-
-		return polygon;
-	}
-
-	// Remove backtracking from path (A->B->A patterns) and consecutive duplicates
-	private static function pathBacktracking(path:Polygon):Polygon {
-		if (path.length < 2) return path;
-
-		var clean = new Polygon();
-		clean.push(path[0]);
-
-		for (i in 1...path.length) {
-			var curr = path[i];
-			var last = clean[clean.length - 1];
-
-			// Skip if same as last point
-			if (pointNear(curr, last)) continue;
-
-			// Skip if this would create backtracking (same as second-to-last)
-			if (clean.length >= 2) {
-				var secondLast = clean[clean.length - 2];
-				if (pointNear(curr, secondLast)) continue;
-			}
-
-			clean.push(curr);
-		}
-
-		return clean;
+		return [];
 	}
 }
 
 typedef RiverData = {
 	path:Polygon,      // Center line of river (Voronoi edges)
-	polygon:Polygon,   // Full polygon with width
+	polygon:Polygon,   // Legacy - not used with stroke rendering
 	width:Float
 };
